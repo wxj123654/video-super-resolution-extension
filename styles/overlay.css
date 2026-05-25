@@ -1,0 +1,16 @@
+.vgsr-overlay {
+  position: fixed;
+  z-index: 2147483646;
+  pointer-events: none;
+  background: #000;
+  contain: strict;
+}
+
+.vgsr-local-overlay {
+  position: absolute;
+  z-index: 2;
+}
+
+.vgsr-hidden-source {
+  opacity: 0 !important;
+}

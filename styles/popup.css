@@ -1,0 +1,215 @@
+:root {
+  color-scheme: light dark;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #f7f5ef;
+  color: #1f2933;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  width: 320px;
+  margin: 0;
+  background: #f7f5ef;
+}
+
+.panel {
+  padding: 16px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+h1 {
+  margin: 0 0 4px;
+  font-size: 18px;
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+p {
+  margin: 0;
+  color: #5f6b76;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.switch {
+  position: relative;
+  display: inline-flex;
+  width: 46px;
+  height: 28px;
+  flex: 0 0 auto;
+}
+
+.switch input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+}
+
+.switch span {
+  width: 100%;
+  border-radius: 999px;
+  background: #b6c0ca;
+  cursor: pointer;
+  transition: background 140ms ease;
+}
+
+.switch span::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 20%);
+  transition: transform 140ms ease;
+}
+
+.switch input:checked + span {
+  background: #217a6b;
+}
+
+.switch input:checked + span::after {
+  transform: translateX(18px);
+}
+
+.controls {
+  display: grid;
+  gap: 14px;
+}
+
+label {
+  display: grid;
+  gap: 7px;
+  font-size: 12px;
+  color: #46515c;
+}
+
+select,
+button {
+  min-height: 34px;
+  border: 1px solid #c8c3b7;
+  border-radius: 6px;
+  background: #fffdf8;
+  color: #202a33;
+  font: inherit;
+}
+
+select {
+  padding: 0 10px;
+}
+
+input[type="range"] {
+  width: 100%;
+  accent-color: #217a6b;
+}
+
+output {
+  justify-self: end;
+  margin-top: -4px;
+  color: #5f6b76;
+  font-size: 12px;
+}
+
+footer {
+  margin-top: 16px;
+}
+
+.diagnostics {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid #d8d1c4;
+}
+
+.diagnostics-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.diagnostics h2 {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.2;
+  color: #46515c;
+}
+
+.diagnostics-header button {
+  width: auto;
+  min-width: 92px;
+  padding: 0 10px;
+}
+
+.diagnostics-output {
+  margin: 0;
+  padding: 10px;
+  min-height: 132px;
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid #d8d1c4;
+  border-radius: 6px;
+  background: #fffdf8;
+  color: #33404a;
+  font: 11px/1.45 "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+button {
+  width: 100%;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+button:active {
+  transform: translateY(1px);
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root,
+  body {
+    background: #14181c;
+    color: #edf0f2;
+  }
+
+  p,
+  label,
+  output {
+    color: #aeb7bf;
+  }
+
+  select,
+  button,
+  .diagnostics-output {
+    border-color: #39444d;
+    background: #1e252b;
+    color: #edf0f2;
+  }
+
+  .diagnostics {
+    border-top-color: #2c353d;
+  }
+
+  .diagnostics h2 {
+    color: #c7d0d7;
+  }
+}
