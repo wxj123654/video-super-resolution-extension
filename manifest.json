@@ -16,6 +16,8 @@
         "src/upscaler.js",
         "src/upscaler-core.js",
         "src/upscaler-onnx.js",
+        "src/upscaler-post.js",
+        "src/shaders/ecbsr-post.js",
         "src/shaders/tiny-cnn.js",
         "src/shaders/webgpu.js",
         "src/upscaler-webgl.js",

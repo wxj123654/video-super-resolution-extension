@@ -5,7 +5,8 @@ const DEFAULT_SETTINGS = {
   mode: "balanced",
   overlayOpacity: 0.8,
   displayMode: "overlay",
-  engine: "tiny-cnn"
+  engine: "tiny-cnn",
+  targetFps: "auto"
 };
 
 const VALID_ENGINES = new Set(["webgpu", "tiny-cnn", "ecbsr"]);
@@ -20,6 +21,7 @@ const els = {
   displayMode: document.querySelector("#displayMode"),
   engine: document.querySelector("#engine"),
   mode: document.querySelector("#mode"),
+  targetFps: document.querySelector("#targetFps"),
   status: document.querySelector("#status"),
   rescan: document.querySelector("#rescan"),
   runDiagnostics: document.querySelector("#runDiagnostics"),
@@ -53,7 +55,7 @@ async function init() {
   }
 }
 
-for (const key of ["enabled", "scale", "sharpness", "overlayOpacity", "displayMode", "engine", "mode"]) {
+for (const key of ["enabled", "scale", "sharpness", "overlayOpacity", "displayMode", "engine", "mode", "targetFps"]) {
   els[key].addEventListener("input", () => {
     settings = readSettings();
     renderSettings();
@@ -84,7 +86,8 @@ function readSettings() {
     overlayOpacity: Number(els.overlayOpacity.value),
     displayMode: els.displayMode.value,
     engine: els.engine.value,
-    mode: els.mode.value
+    mode: els.mode.value,
+    targetFps: els.targetFps.value
   });
 }
 
@@ -106,6 +109,7 @@ function renderSettings() {
   els.displayMode.value = settings.displayMode;
   els.engine.value = settings.engine;
   els.mode.value = settings.mode;
+  els.targetFps.value = settings.targetFps;
 }
 
 async function ensureContentScript() {
@@ -121,8 +125,10 @@ async function ensureContentScript() {
       files: [
         "src/upscaler-core.js",
         "src/vendor/onnxruntime/ort.webgpu.min.js",
+        "src/shaders/ecbsr-post.js",
         "src/shaders/tiny-cnn.js",
         "src/shaders/webgpu.js",
+        "src/upscaler-post.js",
         "src/upscaler-webgl.js",
         "src/upscaler-webgpu.js",
         "src/upscaler-onnx.js",

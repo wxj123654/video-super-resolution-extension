@@ -10,7 +10,8 @@
     mode: "balanced",
     overlayOpacity: 0.8,
     displayMode: "overlay",
-    engine: "tiny-cnn"
+    engine: "tiny-cnn",
+    targetFps: "auto"
   };
 
   const SITE_PROFILES = {
@@ -54,6 +55,8 @@
       this.frame = 0;
       this.pendingRescan = 0;
       this.lastError = "";
+      this.lastRenderTime = 0;
+      this.lastVideoTime = -1;
       this.resizeObserver = new ResizeObserver(() => this.syncCanvasBounds());
       this.appendCanvasTo(document.documentElement, null);
       this.applyCanvasVisuals();
@@ -165,6 +168,11 @@
         return;
       }
 
+      if (!this.shouldRenderFrame()) {
+        this.frame = requestAnimationFrame(() => this.loop());
+        return;
+      }
+
       try {
         this.syncCanvasBounds();
         const rendered = this.upscaler.render(this.video, this.settings);
@@ -183,6 +191,26 @@
       }
 
       this.frame = requestAnimationFrame(() => this.loop());
+    }
+
+    shouldRenderFrame() {
+      const targetFps = this.settings.targetFps;
+
+      if (targetFps === "auto") {
+        if (this.video.currentTime === this.lastVideoTime && this.lastVideoTime >= 0) {
+          return false;
+        }
+        this.lastVideoTime = this.video.currentTime;
+        return true;
+      }
+
+      const fps = Math.max(1, Number(targetFps) || 30);
+      const now = performance.now();
+      if (now - this.lastRenderTime < 1000 / fps) {
+        return false;
+      }
+      this.lastRenderTime = now;
+      return true;
     }
 
     syncCanvasBounds() {

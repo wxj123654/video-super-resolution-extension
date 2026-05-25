@@ -24,6 +24,7 @@
 - `src/upscaler-webgl.js`：仅保留 `轻量模型(WebGL)` 的三段卷积执行器。
 - `src/upscaler-webgpu.js`：提供基于 `texture_external` 的 WebGPU 内容增强路径，优先请求硬件高性能 adapter。
 - `src/upscaler-onnx.js`：提供 `ECBSR 模型(ONNX/WebGPU)` 的运行时，使用 `onnxruntime-web` 在浏览器内执行官方移动版模型。
+- `src/upscaler-post.js` / `src/shaders/ecbsr-post.js`：负责把 ECBSR 的亮度输出交给 WebGL2 做实时合成，避免 JS 逐像素 `mergeLuma`。
 - `src/shaders/tiny-cnn.js`：内置固定权重的小型 WebGL2 卷积管线。
 - `src/shaders/webgpu.js`：当前 WebGPU 的增强 shader。
 - `src/models/ecbsr_x2_m4c8_y.onnx`：由官方 ECBSR mobile checkpoint 导出的 ONNX 模型，输入为 Y 通道，倍率固定为 2x。
