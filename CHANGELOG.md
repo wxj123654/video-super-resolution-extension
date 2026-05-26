@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.4.0 — 多模型 ONNX GPU 管线
+
+- **多模型 ONNX 管线**：ONNX 推理路径从单一 ECBSR 硬编码扩展为数据驱动的多模型架构。新增 `OnnxModelDefinition` 类型系统，通过 `src/backends/onnx-models.ts` 注册模型元数据（输入/输出通道、色彩空间、尺寸对齐策略、合成模式），运行时根据 `modelId` 自动选择管线。
+- **RGB 三通道模型支持**：新增 `RGB Bicubic x2` 基线模型（`rgb_bicubic_x2.onnx`），验证 RGB 三通道 ONNX 全通路。配套实现 GPU compute shader 打包（`onnx-pack-rgb.wgsl`，`textureLoad` → NCHW planar storage buffer）和解包（`onnx-rgb-unpack.wgsl`，storage buffer → `texture_2d` render）。
+- **模型选择 UI**：弹窗新增"模型"下拉框，仅在 ONNX 引擎激活时显示。用户可切换 ECBSR Y-only x2 和 RGB Bicubic x2 模型，选择通过 `chrome.storage.sync` 持久化。
+- **管线键（pipeline key）驱动重建**：控制器用 `engine + modelId` 组合键判断管线变更，避免仅切换模型时未重建 upscaler 的问题。
+- **多 session 缓存**：`ORT_STATE.sessionPromises` 从单 session 改为 `Map<modelId, SessionBundle>`，支持多个 ONNX 模型 session 共存复用。
+- **GPU 输入打包管线**：新增 `InputPacker` 抽象，根据模型 `inputPacking` 配置（`luma_f32_planar` / `rgb_f32_planar`）选择对应的 compute shader 将视频帧打包为 NCHW planar GPU buffer。luma 路径复用现有 `onnx-luma.wgsl`，RGB 路径使用新 `onnx-pack-rgb.wgsl`。
+- **多合成器架构**：`onnx-upscaler.ts` 重构为三种合成器——`WebGpuLumaCompositor`（Y-only → luma_replace）、`WebGpuRgbCompositor`（RGB → 全 GPU 合成）、`RgbCanvasCompositor`（RGB → 2D canvas CPU fallback）。根据模型 `compositor` 字段自动选择。
+- **全 GPU RGB 合成路径**：`WebGpuRgbCompositor` 使用 `onnx-present.wgsl`（`texture_2d` 采样 → canvas render）或 `onnx-rgb-unpack.wgsl`（storage buffer 直接 → render）实现 RGB 模型的全 GPU 输出。
+- **CPU fallback 双路径**：Y-only 和 RGB 模型均保留 CPU 回退路径（`extractLumaCpu` / `extractRgbCpu`），在 GPU buffer 不可用时自动降级。
+- **结构化调试日志系统**：新增 `src/content/debug.ts`，提供 `createLogger(scope)` 工厂。所有模块（controller、content script、popup）统一使用 `[VSR][scope]` 前缀的结构化日志，通过 `__VSR_DEBUG__` 编译开关控制（`npm run build:debug` 启用）。
+- **`build:debug` 模式**：Vite 配置改为函数式，新增 `--mode debug` 支持，关闭 minify、开启 sourcemap、注入 `__VSR_DEBUG__` 全局常量。
+- **WebGPU adapter 请求策略增强**：将 adapter 请求逻辑抽取为 `src/backends/onnx-webgpu-utilities.ts`，依次尝试 high-performance → default → compatibility adapter，增强软件适配器检测（`isFallbackAdapter` + SwiftShader 关键字匹配）。
+- **`onnx-video-copy.wgsl`**：新增视频帧 → `texture_2d` 复制 shader，用于 RGB 路径的 GPU 输入准备。
+- **ONNX 模型文档**：新增 `docs/onnx-models.md`，记录内置模型目录和添加新模型的步骤。
+- **弹窗错误增强**：popup 所有异步操作路径增加结构化错误日志，`setStatus` 增加 `reason` 标识便于排查。
+
 ## v0.3.0 — TypeScript + Vite 构建迁移
 
 - **TypeScript 全量迁移**：所有源文件从纯 JS 转为 TypeScript strict 模式，添加 `@types/chrome`、`@webgpu/types` 类型覆盖。

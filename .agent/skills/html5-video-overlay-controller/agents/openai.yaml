@@ -1,0 +1,4 @@
+interface:
+  display_name: "Video Overlay Controller"
+  short_description: "HTML5 video overlay controller patterns"
+  default_prompt: "Use $html5-video-overlay-controller to build or adapt a page-level video selection and overlay canvas controller for HTML5 players."
