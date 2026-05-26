@@ -36,6 +36,7 @@
 npm install       # 安装依赖
 npm run dev       # 开发模式 (HMR)
 npm run build     # 生产构建 → dist/
+npm run build:debug # Debug 构建 → dist/，保留 sourcemap 和详细日志
 npm run typecheck # 类型检查
 ```
 

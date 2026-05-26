@@ -1,17 +1,25 @@
-import * as ort from "onnxruntime-web";
+import type * as OnnxRuntimeWeb from "onnxruntime-web";
 import type { Settings, UpscalerImpl } from "../upscaler/types";
-import { requestWebGpuAdapter } from "../upscaler/webgpu-utilities";
+import { requestOnnxWebGpuAdapter } from "./onnx-webgpu-utilities";
 import lumaShaderCode from "../shaders/onnx-luma.wgsl?raw";
 import compositeShaderCode from "../shaders/onnx-composite.wgsl?raw";
 
+type OrtRuntime = typeof OnnxRuntimeWeb;
+
 const ORT_STATE = {
   configured: false,
-  sessionPromise: null as Promise<ort.InferenceSession> | null,
+  sessionPromise: null as Promise<OnnxRuntimeWeb.InferenceSession> | null,
   adapter: null as GPUAdapter | null,
   sessionCount: 0,
 };
 const ECBSR_DEBUG = false;
 const ECBSR_MAX_INPUT_PIXELS = 1920 * 1080;
+const ORT_JSEP_MJS_URL = chrome.runtime.getURL(
+  "vendor/onnxruntime/ort-wasm-simd-threaded.jsep.mjs",
+);
+const ORT_JSEP_WASM_URL = chrome.runtime.getURL(
+  "vendor/onnxruntime/ort-wasm-simd-threaded.jsep.wasm",
+);
 
 function extractLumaCpu(rgba: Uint8ClampedArray): Float32Array {
   const pixels = rgba.length >> 2;
@@ -187,7 +195,7 @@ export class EcbsrOnnxUpscaler implements UpscalerImpl {
   private inputCanvas: HTMLCanvasElement;
   private inputContext: CanvasRenderingContext2D;
 
-  private session: ort.InferenceSession | null = null;
+  private session: OnnxRuntimeWeb.InferenceSession | null = null;
   private inputName = "";
   private outputName = "";
   private pendingInference: Promise<void> | null = null;
@@ -212,7 +220,7 @@ export class EcbsrOnnxUpscaler implements UpscalerImpl {
 
   private outputGpuBuffer: GPUBuffer | null = null;
   private outputGpuBufferSize = 0;
-  private outputTensor: ort.Tensor | null = null;
+  private outputTensor: OnnxRuntimeWeb.Tensor | null = null;
   private outputWidth = 0;
   private outputHeight = 0;
 
@@ -249,22 +257,23 @@ export class EcbsrOnnxUpscaler implements UpscalerImpl {
       console.info("[Video GPU Super Resolution][ECBSR] init start");
     }
 
-    const ortAdapter = await requestWebGpuAdapter({
+    const ortAdapter = await requestOnnxWebGpuAdapter({
       allowSoftware: true,
       preferCompatibility: false,
     });
-    if (!ort.InferenceSession || !ort.Tensor) {
+    const ortRuntime = getOrtRuntime();
+    if (!ortRuntime.InferenceSession || !ortRuntime.Tensor) {
       throw new Error("onnxruntime-web is not available");
     }
-    if (typeof ort.Tensor.fromGpuBuffer !== "function") {
+    if (typeof ortRuntime.Tensor.fromGpuBuffer !== "function") {
       throw new Error("ort.Tensor.fromGpuBuffer not available");
     }
-    configureOrtRuntime(ort, ortAdapter);
-    this.session = await getSharedSession(ort);
+    configureOrtRuntime(ortRuntime, ortAdapter);
+    this.session = await getSharedSession(ortRuntime);
     this.inputName = this.session.inputNames[0] || "input";
     this.outputName = this.session.outputNames[0] || "output";
 
-    const sharedDevice = ort.env.webgpu.device;
+    const sharedDevice = ortRuntime.env.webgpu.device;
     if (!sharedDevice) {
       throw new Error("ONNX Runtime did not expose a WebGPU device");
     }
@@ -390,8 +399,9 @@ export class EcbsrOnnxUpscaler implements UpscalerImpl {
 
     const outputWidth = inputWidth * 2;
     const outputHeight = inputHeight * 2;
+    const ortRuntime = getOrtRuntime();
     if (
-      ort.Tensor &&
+      ortRuntime.Tensor &&
       (this.outputWidth !== outputWidth || this.outputHeight !== outputHeight)
     ) {
       const bufferSize = outputWidth * outputHeight * 4;
@@ -405,7 +415,7 @@ export class EcbsrOnnxUpscaler implements UpscalerImpl {
           GPUBufferUsage.COPY_DST |
           GPUBufferUsage.STORAGE,
       });
-      this.outputTensor = ort.Tensor.fromGpuBuffer(this.outputGpuBuffer, {
+      this.outputTensor = ortRuntime.Tensor.fromGpuBuffer(this.outputGpuBuffer, {
         dataType: "float32",
         dims: [1, 1, outputHeight, outputWidth],
       });
@@ -420,20 +430,21 @@ export class EcbsrOnnxUpscaler implements UpscalerImpl {
     const width = this.modelInputWidth;
     const height = this.modelInputHeight;
 
-    if (!ort.Tensor || !this.session || !this.outputTensor) {
+    const ortRuntime = getOrtRuntime();
+    if (!ortRuntime.Tensor || !this.session || !this.outputTensor) {
       throw new Error("onnxruntime-web session is unavailable");
     }
 
     const preStartedAt = performance.now();
 
-    let inputTensor: ort.Tensor;
+    let inputTensor: OnnxRuntimeWeb.Tensor | null = null;
     let useGpuBuffer = false;
 
     if (this.gpuReady) {
       const gpuBuffer = await this.extractLumaToGpuBuffer(video, width, height);
       if (gpuBuffer) {
         try {
-          inputTensor = ort.Tensor.fromGpuBuffer(gpuBuffer, {
+          inputTensor = ortRuntime.Tensor.fromGpuBuffer(gpuBuffer, {
             dims: [1, 1, height, width],
             dataType: "float32",
           });
@@ -450,20 +461,36 @@ export class EcbsrOnnxUpscaler implements UpscalerImpl {
 
       if (!useGpuBuffer && gpuBuffer) {
         const yData = await this.readGpuBufferToCpu(gpuBuffer, width, height);
-        inputTensor = new ort.Tensor("float32", yData, [1, 1, height, width]);
+        inputTensor = new ortRuntime.Tensor("float32", yData, [
+          1,
+          1,
+          height,
+          width,
+        ]);
       } else if (!useGpuBuffer) {
         const yData = this.extractLumaCpuPath(video, width, height);
-        inputTensor = new ort.Tensor("float32", yData, [1, 1, height, width]);
-      } else {
-        // useGpuBuffer is true, inputTensor already set above
-        inputTensor = null!;
+        inputTensor = new ortRuntime.Tensor("float32", yData, [
+          1,
+          1,
+          height,
+          width,
+        ]);
       }
     } else {
       const yData = this.extractLumaCpuPath(video, width, height);
-      inputTensor = new ort.Tensor("float32", yData, [1, 1, height, width]);
+      inputTensor = new ortRuntime.Tensor("float32", yData, [
+        1,
+        1,
+        height,
+        width,
+      ]);
     }
 
     const preEndedAt = performance.now();
+
+    if (!inputTensor) {
+      throw new Error("ECBSR input tensor preparation failed");
+    }
 
     const inferStartedAt = performance.now();
     await this.session.run(
@@ -640,12 +667,16 @@ export class EcbsrOnnxUpscaler implements UpscalerImpl {
 }
 
 function configureOrtRuntime(
-  ortNs: typeof ort,
+  ortNs: OrtRuntime,
   adapter: GPUAdapter,
 ): void {
   ortNs.env.logLevel = ECBSR_DEBUG ? "verbose" : "warning";
   ortNs.env.wasm.proxy = false;
   ortNs.env.wasm.numThreads = 1;
+  ortNs.env.wasm.wasmPaths = {
+    mjs: ORT_JSEP_MJS_URL,
+    wasm: ORT_JSEP_WASM_URL,
+  };
   ortNs.env.webgpu.adapter = adapter as unknown as GPUAdapter;
   ortNs.env.webgpu.powerPreference = "low-power";
   ortNs.env.webgpu.forceFallbackAdapter = false;
@@ -654,8 +685,8 @@ function configureOrtRuntime(
 }
 
 async function getSharedSession(
-  ortNs: typeof ort,
-): Promise<ort.InferenceSession> {
+  ortNs: OrtRuntime,
+): Promise<OnnxRuntimeWeb.InferenceSession> {
   if (ORT_STATE.sessionPromise) {
     return ORT_STATE.sessionPromise;
   }
@@ -689,4 +720,12 @@ async function getSharedSession(
     });
 
   return ORT_STATE.sessionPromise;
+}
+
+function getOrtRuntime(): OrtRuntime {
+  const runtime = window.ort;
+  if (!runtime) {
+    throw new Error("onnxruntime-web runtime script is not loaded");
+  }
+  return runtime;
 }

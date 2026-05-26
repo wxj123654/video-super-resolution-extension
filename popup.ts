@@ -1,4 +1,9 @@
-import type { Settings, EngineType } from "./src/upscaler/types";
+import type {
+  Settings,
+  EngineType,
+  ControllerState,
+  VsrMessage,
+} from "./src/upscaler/types";
 
 const DEFAULT_SETTINGS: Settings = {
   enabled: false,
@@ -12,6 +17,7 @@ const DEFAULT_SETTINGS: Settings = {
 };
 
 const VALID_ENGINES = new Set<EngineType>(["webgpu", "tiny-cnn", "ecbsr"]);
+const logger = createLogger("popup");
 
 const els = {
   enabled: document.querySelector<HTMLInputElement>("#enabled")!,
@@ -33,18 +39,23 @@ const els = {
 let activeTabId: number | null = null;
 let settings: Settings = { ...DEFAULT_SETTINGS };
 
-init();
+init().catch((error) => {
+  logger.error("Popup initialization failed", error);
+  setStatus("扩展初始化失败", "init-failed", error);
+});
 
 async function init(): Promise<void> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   activeTabId = tab?.id ?? null;
+  logger.info("Resolved active tab", summarizeTab(tab));
 
   const stored = await chrome.storage.sync.get(DEFAULT_SETTINGS);
   settings = normalizeSettings({ ...DEFAULT_SETTINGS, ...stored });
+  logger.debug("Loaded settings", settings);
   renderSettings();
 
   if (!activeTabId) {
-    setStatus("没有可用标签页");
+    setStatus("没有可用标签页", "no-active-tab");
     return;
   }
 
@@ -55,8 +66,9 @@ async function init(): Promise<void> {
       state,
       settings.enabled ? "已连接，增强已启用" : "已连接，当前关闭",
     );
-  } catch {
-    setStatus("当前页面不支持注入");
+  } catch (error) {
+    logger.error("Unable to connect to current page", error);
+    setStatus("当前页面不支持注入", "init-connect-failed", error);
   }
 }
 
@@ -76,18 +88,28 @@ for (const key of [
     chrome.storage.sync.set(settings);
     send({ type: "VSR_UPDATE", settings })
       .then((state) => applyState(state, "已更新"))
-      .catch(() => setStatus("无法连接当前页面"));
+      .catch((error) => {
+        logger.warn("Failed to update settings on current page", {
+          settings,
+          error,
+        });
+        setStatus("无法连接当前页面", "settings-update-failed", error);
+      });
   });
 }
 
 els.rescan.addEventListener("click", () => {
   send({ type: "VSR_RESCAN" })
     .then((state) => applyState(state, "已重新扫描"))
-    .catch(() => setStatus("无法重新扫描"));
+    .catch((error) => {
+      logger.warn("Failed to rescan videos", error);
+      setStatus("无法重新扫描", "rescan-failed", error);
+    });
 });
 
 els.runDiagnostics.addEventListener("click", () => {
   runDiagnostics().catch((error) => {
+    logger.error("Diagnostics failed", error);
     els.diagnosticsOutput.textContent = `检测失败\n${error instanceof Error ? error.message : String(error)}`;
   });
 });
@@ -131,28 +153,87 @@ function renderSettings(): void {
 async function ensureContentScript(): Promise<void> {
   try {
     await send({ type: "VSR_PING" });
-  } catch {
+    logger.info("Content script already connected", { tabId: activeTabId });
+  } catch (error) {
+    logger.info("Content script ping failed; injecting assets", {
+      tabId: activeTabId,
+      error,
+    });
+
+    const cssFiles = ["styles/overlay.css"];
+    logger.debug("Injecting CSS", {
+      tabId: activeTabId,
+      files: cssFiles,
+    });
     await chrome.scripting.insertCSS({
       target: { tabId: activeTabId! },
-      files: ["styles/overlay.css"],
+      files: cssFiles,
+    });
+
+    const scriptFiles = [
+      "vendor/onnxruntime/ort.webgpu.min.js",
+      "content.js",
+    ];
+    logger.debug("Executing content script", {
+      tabId: activeTabId,
+      files: scriptFiles,
     });
     await chrome.scripting.executeScript({
       target: { tabId: activeTabId! },
-      files: [new URL("content.js", import.meta.url).pathname],
+      files: scriptFiles,
     });
+    logger.info("Content script injected", { tabId: activeTabId });
   }
 }
 
-function send(message: { type: string; settings?: Settings }): Promise<unknown> {
-  return chrome.tabs.sendMessage(activeTabId!, message);
+async function send(message: VsrMessage): Promise<unknown> {
+  if (activeTabId == null) {
+    const error = new Error("Active tab id is not available");
+    logger.error("Cannot send message without an active tab", {
+      message,
+      error,
+    });
+    throw error;
+  }
+
+  logger.debug("Sending message", {
+    tabId: activeTabId,
+    type: message.type,
+  });
+
+  try {
+    const response = await chrome.tabs.sendMessage(activeTabId, message);
+    logger.debug("Received response", {
+      tabId: activeTabId,
+      type: message.type,
+      response: summarizeState(response),
+    });
+    return response;
+  } catch (error) {
+    logger.warn("sendMessage failed", {
+      tabId: activeTabId,
+      type: message.type,
+      error,
+    });
+    throw error;
+  }
 }
 
-function setStatus(text: string): void {
+function setStatus(text: string, context = "ui", error?: unknown): void {
   els.status.textContent = text;
+  logger.info("Status updated", {
+    text,
+    context,
+    error,
+  });
 }
 
 function applyState(state: unknown, fallbackMessage: string): void {
   const s = state as Record<string, unknown> | null;
+  logger.debug("Applying state", {
+    state: summarizeState(state),
+    fallbackMessage,
+  });
   if (s?.engine && s.engine !== settings.engine) {
     settings = { ...settings, engine: s.engine as EngineType };
     chrome.storage.sync.set({ engine: s.engine });
@@ -163,18 +244,23 @@ function applyState(state: unknown, fallbackMessage: string): void {
     chrome.storage.sync.set({ displayMode: s.displayMode });
     renderSettings();
   }
-  setStatus(String(s?.message ?? fallbackMessage));
+  setStatus(String(s?.message ?? fallbackMessage), "apply-state");
 }
 
 async function runDiagnostics(): Promise<void> {
   els.runDiagnostics.disabled = true;
   els.diagnosticsOutput.textContent = "检测中...";
+  logger.info("Diagnostics started", { tabId: activeTabId });
 
   try {
     const extensionDiagnostics = await gatherExtensionDiagnostics();
     const pageDiagnostics = activeTabId
       ? await gatherPageDiagnostics(activeTabId)
       : { error: "没有可用标签页" };
+    logger.debug("Diagnostics gathered", {
+      extensionDiagnostics,
+      pageDiagnostics,
+    });
     els.diagnosticsOutput.textContent = formatDiagnostics(
       extensionDiagnostics,
       pageDiagnostics,
@@ -283,6 +369,10 @@ async function gatherPageDiagnostics(
 
     return result as Record<string, unknown>;
   } catch (error) {
+    logger.warn("Page diagnostics execution failed", {
+      tabId,
+      error,
+    });
     return {
       context: "page",
       error: error instanceof Error ? error.message : String(error),
@@ -396,4 +486,98 @@ function formatSection(
   }
 
   return lines.join("\n");
+}
+
+function summarizeState(state: unknown): unknown {
+  const value = state as ControllerState | null;
+  if (!value || typeof value !== "object") {
+    return toLogDetails(state);
+  }
+
+  return {
+    message: value.message,
+    hasVideo: value.hasVideo,
+    engine: value.engine,
+    failedEngine: value.failedEngine,
+    displayMode: value.displayMode,
+    overlay: value.overlay,
+    video: value.video,
+  };
+}
+
+function createLogger(scope: string) {
+  const debugEnabled = __VSR_DEBUG__;
+  const emit = (
+    method: "debug" | "info" | "warn" | "error",
+    message: string,
+    details?: unknown,
+  ): void => {
+    if (!debugEnabled) return;
+    const text = `[VSR][${scope}] ${message}`;
+    if (details === undefined) {
+      console[method](text);
+      return;
+    }
+    console[method](text, toLogDetails(details));
+  };
+
+  return {
+    enabled: debugEnabled,
+    debug(message: string, details?: unknown): void {
+      emit("debug", message, details);
+    },
+    info(message: string, details?: unknown): void {
+      emit("info", message, details);
+    },
+    warn(message: string, details?: unknown): void {
+      emit("warn", message, details);
+    },
+    error(message: string, details?: unknown): void {
+      emit("error", message, details);
+    },
+  };
+}
+
+function summarizeTab(
+  tab: chrome.tabs.Tab | null | undefined,
+): Record<string, unknown> | null {
+  if (!tab) return null;
+  return {
+    id: tab.id ?? null,
+    url: tab.url ?? "",
+    title: tab.title ?? "",
+    status: tab.status ?? "",
+    active: Boolean(tab.active),
+  };
+}
+
+function toLogDetails(value: unknown): unknown {
+  if (value instanceof Error) {
+    const cause =
+      "cause" in value
+        ? toLogDetails((value as Error & { cause?: unknown }).cause)
+        : undefined;
+    return {
+      name: value.name,
+      message: value.message,
+      stack: value.stack,
+      cause,
+    };
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((entry) => toLogDetails(entry));
+  }
+
+  if (value && typeof value === "object") {
+    const result: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(
+      value as Record<string, unknown>,
+    )) {
+      result[key] = toLogDetails(entry);
+    }
+    return result;
+  }
+
+  return value;
 }

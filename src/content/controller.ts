@@ -8,6 +8,7 @@ import {
   getErrorMessage,
   getEngine,
 } from "./video-utils";
+import { createLogger, toLogDetails } from "./debug";
 
 const DEFAULT_SETTINGS: Settings = {
   enabled: false,
@@ -22,6 +23,8 @@ const DEFAULT_SETTINGS: Settings = {
 
 export { DEFAULT_SETTINGS };
 
+const logger = createLogger("controller");
+
 export class Controller {
   settings: Settings = { ...DEFAULT_SETTINGS };
   private profile: SiteProfile;
@@ -35,6 +38,7 @@ export class Controller {
   private frame = 0;
   private pendingRescan = 0;
   private lastError = "";
+  private failedEngineSkipLogged = false;
   private lastRenderTime = 0;
   private lastVideoTime = -1;
   private resizeObserver: ResizeObserver;
@@ -45,6 +49,17 @@ export class Controller {
 
   constructor() {
     this.profile = detectSiteProfile();
+    logger.info("Controller created", {
+      host: location.hostname,
+      profile: {
+        canvasClass: this.profile.canvasClass,
+        localOverlay: this.profile.localOverlay,
+        insertAfterVideo: this.profile.insertAfterVideo,
+        hideSource: this.profile.hideSource,
+        overlayRootSelector: this.profile.overlayRootSelector,
+        videoSelectors: this.profile.videoSelectors,
+      },
+    });
     this.canvas = this.createCanvas();
     this.appendCanvasTo(document.documentElement, null);
     this.applyCanvasVisuals();
@@ -66,16 +81,23 @@ export class Controller {
   }
 
   update(settings: Partial<Settings>): ControllerState {
+    logger.debug("Update requested", {
+      incomingSettings: settings,
+      currentSettings: this.settings,
+    });
     const previousEngine = this.settings.engine;
     this.settings = { ...this.settings, ...settings };
     if (previousEngine !== this.settings.engine) {
       this.failedEngine = "";
+      this.failedEngineSkipLogged = false;
     }
     this.lastError = "";
 
     if (!this.settings.enabled) {
       this.stop();
-      return this.getState("关闭");
+      const state = this.getState("关闭");
+      logger.info("Enhancement disabled", this.summarizeState(state));
+      return state;
     }
 
     const previous = this.video;
@@ -83,14 +105,25 @@ export class Controller {
     this.handleVideoChange(previous);
     if (!this.video) {
       this.stop(previous);
-      return this.getState("没有检测到可播放视频");
+      const state = this.getState("没有检测到可播放视频");
+      logger.warn("No playable video detected during update", {
+        selectors: this.profile.videoSelectors,
+        state: this.summarizeState(state),
+      });
+      return state;
     }
 
     this.start();
-    return this.getState("运行中");
+    const state = this.getState("运行中");
+    logger.info("Enhancement started", this.summarizeState(state));
+    return state;
   }
 
   rescan(): ControllerState {
+    logger.debug("Rescan requested", {
+      enabled: this.settings.enabled,
+      currentVideo: this.summarizeVideo(this.video),
+    });
     this.lastError = "";
     const previous = this.video;
     this.pickVideo();
@@ -100,9 +133,11 @@ export class Controller {
     } else {
       this.stop(previous);
     }
-    return this.getState(
+    const state = this.getState(
       this.video ? "已重新扫描" : "没有检测到可播放视频",
     );
+    logger.info("Rescan completed", this.summarizeState(state));
+    return state;
   }
 
   private pickVideo(): void {
@@ -116,6 +151,10 @@ export class Controller {
         }))
         .filter(({ rect }) => rect.width >= 120 && rect.height >= 90)
         .sort((a, b) => scoreVideo(b) - scoreVideo(a))[0]?.video ?? null;
+    logger.debug("Video selection completed", {
+      candidateCount: videos.length,
+      selectedVideo: this.summarizeVideo(this.video),
+    });
   }
 
   private start(): void {
@@ -126,9 +165,20 @@ export class Controller {
         "当前引擎已失败，请切换引擎或关闭后重新开启再试";
       this.canvas.hidden = true;
       this.setSourceHidden(false);
+      if (!this.failedEngineSkipLogged) {
+        logger.warn("Start skipped because engine is marked failed", {
+          engine,
+          state: this.summarizeState(this.getState(this.lastError)),
+        });
+        this.failedEngineSkipLogged = true;
+      }
       return;
     }
     if (!this.upscaler || this.upscalerEngine !== engine) {
+      logger.info("Creating upscaler", {
+        engine,
+        previousEngine: this.upscalerEngine || null,
+      });
       this.upscaler?.destroy();
       if (this.upscalerEngine) {
         this.replaceCanvas();
@@ -138,6 +188,14 @@ export class Controller {
     }
     this.resizeObserver.observe(this.video);
     this.syncCanvasBounds();
+    logger.debug("Upscaler ready", {
+      engine,
+      video: this.summarizeVideo(this.video),
+      canvas: {
+        width: this.canvas.width,
+        height: this.canvas.height,
+      },
+    });
     if (!this.frame) {
       this.loop();
     }
@@ -182,6 +240,13 @@ export class Controller {
       console.warn("[Video GPU Super Resolution]", error);
       this.lastError = getErrorMessage(error);
       this.failedEngine = getEngine(this.settings);
+      this.failedEngineSkipLogged = false;
+      logger.warn("Rendering loop failed", {
+        engine: this.failedEngine,
+        error,
+        userMessage: this.lastError,
+        video: this.summarizeVideo(this.video),
+      });
       this.stop();
       return;
     }
@@ -288,6 +353,16 @@ export class Controller {
 
   private scheduleRescan(): void {
     if (!this.settings.enabled || this.pendingRescan) return;
+    if (this.failedEngine === getEngine(this.settings)) {
+      logger.debug("Skipping scheduled rescan because engine is marked failed", {
+        engine: this.failedEngine,
+      });
+      return;
+    }
+    logger.debug("Scheduling rescan", {
+      delayMs: 120,
+      currentVideo: this.summarizeVideo(this.video),
+    });
     this.pendingRescan = window.setTimeout(() => {
       this.pendingRescan = 0;
       const previous = this.video;
@@ -295,6 +370,11 @@ export class Controller {
       this.handleVideoChange(previous);
       if (this.video) {
         this.start();
+        logger.debug("Scheduled rescan found video", {
+          video: this.summarizeVideo(this.video),
+        });
+      } else {
+        logger.warn("Scheduled rescan did not find a playable video");
       }
     }, 120);
   }
@@ -415,5 +495,29 @@ export class Controller {
 
   private shouldReplaceSource(): boolean {
     return this.profile.hideSource || this.getDisplayMode() === "replace";
+  }
+
+  private summarizeVideo(video: HTMLVideoElement | null): Record<string, unknown> | null {
+    if (!video) return null;
+    return {
+      currentSrc: video.currentSrc || video.src || "",
+      readyState: video.readyState,
+      paused: video.paused,
+      videoWidth: video.videoWidth,
+      videoHeight: video.videoHeight,
+      rect: video.getBoundingClientRect().toJSON(),
+    };
+  }
+
+  private summarizeState(state: ControllerState): Record<string, unknown> {
+    return toLogDetails({
+      message: state.message,
+      hasVideo: state.hasVideo,
+      engine: state.engine,
+      failedEngine: state.failedEngine,
+      displayMode: state.displayMode,
+      overlay: state.overlay,
+      video: state.video,
+    }) as Record<string, unknown>;
   }
 }

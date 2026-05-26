@@ -17,6 +17,11 @@ export default defineManifest({
     {
       resources: [
         "models/ecbsr_x2_m4c8_y.onnx",
+        "vendor/onnxruntime/ort.webgpu.min.js",
+        "vendor/onnxruntime/ort-wasm-simd-threaded.wasm",
+        "vendor/onnxruntime/ort-wasm-simd-threaded.jsep.wasm",
+        "vendor/onnxruntime/ort-wasm-simd-threaded.mjs",
+        "vendor/onnxruntime/ort-wasm-simd-threaded.jsep.mjs",
         "styles/overlay.css",
         "content.js",
       ],
