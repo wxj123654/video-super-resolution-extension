@@ -1,7 +1,4 @@
-(function attachEcbsrPostShaders() {
-  const ns = window.VideoGpuSuperResolutionInternal ||= {};
-
-  const ecbsrCompositeShader = `#version 300 es
+#version 300 es
     precision highp float;
 
     uniform sampler2D u_video;
@@ -26,7 +23,3 @@
       vec3 maxColor = min(base + vec3(0.12), vec3(1.0));
       outColor = vec4(clamp(color, minColor, maxColor), 1.0);
     }
-  `;
-
-  Object.assign(ns, { ecbsrCompositeShader });
-})();

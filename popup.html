@@ -29,6 +29,11 @@
           </select>
         </label>
 
+        <label id="modelField" hidden>
+          <span>模型</span>
+          <select id="modelId"></select>
+        </label>
+
         <label>
           <span>显示方式</span>
           <select id="displayMode">
@@ -91,6 +96,6 @@
         <pre id="diagnosticsOutput" class="diagnostics-output">尚未检测</pre>
       </section>
     </main>
-    <script src="popup.js"></script>
+    <script type="module" src="/popup.ts"></script>
   </body>
 </html>

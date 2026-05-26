@@ -1,7 +1,3 @@
-(function attachWebGpuShaders() {
-  const ns = window.VideoGpuSuperResolutionInternal ||= {};
-
-  const webGpuShader = `
 struct Params {
   texel: vec2f,
   sharpness: f32,
@@ -99,7 +95,3 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
   color = antiRing(color, uv, texel);
   return vec4f(clamp(color, vec3f(0.0), vec3f(1.0)), 1.0);
 }
-  `;
-
-  Object.assign(ns, { webGpuShader });
-})();
