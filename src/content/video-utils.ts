@@ -1,4 +1,8 @@
 import type { Settings, EngineType, SiteProfile } from "../upscaler/types";
+import {
+  DEFAULT_ONNX_MODEL_ID,
+  getOnnxModelDefinition,
+} from "../backends/onnx-models";
 
 interface VideoCandidate {
   video: HTMLVideoElement;
@@ -63,4 +67,18 @@ export function getEngine(settings: Settings): EngineType {
   if (settings.engine === "webgpu") return "webgpu";
   if (settings.engine === "ecbsr") return "ecbsr";
   return "tiny-cnn";
+}
+
+export function getOnnxModelId(settings: Settings): string {
+  if (settings.engine !== "ecbsr") {
+    return DEFAULT_ONNX_MODEL_ID;
+  }
+  return getOnnxModelDefinition(settings.modelId).id;
+}
+
+export function getPipelineKey(settings: Settings): string {
+  if (settings.engine === "ecbsr") {
+    return `ecbsr:${getOnnxModelId(settings)}`;
+  }
+  return getEngine(settings);
 }

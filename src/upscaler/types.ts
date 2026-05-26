@@ -1,4 +1,37 @@
 export type EngineType = "webgpu" | "tiny-cnn" | "ecbsr";
+export type OnnxInputLayout = "NCHW";
+export type OnnxInputColorSpace = "y-only" | "rgb";
+export type OnnxCompositorKind = "luma_replace" | "rgb_replace" | "rgb_overlay";
+export type OnnxExecutionProvider = "webgpu";
+export type OnnxInputPacking = "luma_f32_planar" | "rgb_f32_planar";
+export type OnnxOutputPacking = "luma_f32_planar" | "rgb_f32_planar";
+export type OnnxCompositeMode = "luma_replace" | "rgb_replace" | "rgb_overlay";
+
+export interface OnnxSizePolicy {
+  widthAlign: number;
+  heightAlign: number;
+  minInputWidth?: number;
+  minInputHeight?: number;
+  fixedScale?: number;
+}
+
+export interface OnnxModelDefinition {
+  id: string;
+  label: string;
+  modelPath: string;
+  scale: number;
+  inputLayout: OnnxInputLayout;
+  inputChannels: 1 | 3;
+  outputChannels: 1 | 3;
+  inputColorSpace: OnnxInputColorSpace;
+  sizePolicy: OnnxSizePolicy;
+  executionProvider: OnnxExecutionProvider;
+  inputPacking: OnnxInputPacking;
+  outputPacking: OnnxOutputPacking;
+  compositeMode: OnnxCompositeMode;
+  compositor: OnnxCompositorKind;
+  description?: string;
+}
 
 export interface Settings {
   enabled: boolean;
@@ -8,6 +41,7 @@ export interface Settings {
   overlayOpacity: number;
   displayMode: "overlay" | "replace";
   engine: EngineType;
+  modelId: string;
   targetFps: "auto" | "60" | "30" | "24" | "15";
 }
 
@@ -22,6 +56,8 @@ export interface ControllerState {
   hasVideo: boolean;
   engine: string;
   failedEngine: string;
+  modelId?: string;
+  modelLabel?: string;
   displayMode: string;
   overlay: {
     hidden: boolean;

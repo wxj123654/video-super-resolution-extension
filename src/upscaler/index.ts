@@ -9,9 +9,12 @@ export class Upscaler {
   private backend: EngineType;
   private impl: UpscalerImpl;
 
-  constructor(canvas: HTMLCanvasElement, options: { engine: string }) {
+  constructor(
+    canvas: HTMLCanvasElement,
+    options: { engine: string; modelId?: string },
+  ) {
     this.backend = getBackend(options.engine);
-    this.impl = createBackend(canvas, this.backend);
+    this.impl = createBackend(canvas, this.backend, options);
   }
 
   render(video: HTMLVideoElement, settings: Settings): boolean {
@@ -30,8 +33,12 @@ function getBackend(engine: string): EngineType {
   return "tiny-cnn";
 }
 
-function createBackend(canvas: HTMLCanvasElement, backend: EngineType): UpscalerImpl {
+function createBackend(
+  canvas: HTMLCanvasElement,
+  backend: EngineType,
+  options: { engine: string; modelId?: string },
+): UpscalerImpl {
   if (backend === "webgpu") return new WebGpuUpscaler(canvas);
-  if (backend === "ecbsr") return new EcbsrOnnxUpscaler(canvas);
+  if (backend === "ecbsr") return new EcbsrOnnxUpscaler(canvas, options);
   return new TinyCnnUpscaler(canvas);
 }

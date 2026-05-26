@@ -1,5 +1,9 @@
 import type { Settings, ControllerState, SiteProfile } from "../upscaler/types";
 import { Upscaler } from "../upscaler/index";
+import {
+  DEFAULT_ONNX_MODEL_ID,
+  getOnnxModelDefinition,
+} from "../backends/onnx-models";
 import { detectSiteProfile } from "./site-profiles";
 import {
   collectVideos,
@@ -7,6 +11,8 @@ import {
   isRenderableVideo,
   getErrorMessage,
   getEngine,
+  getOnnxModelId,
+  getPipelineKey,
 } from "./video-utils";
 import { createLogger, toLogDetails } from "./debug";
 
@@ -18,6 +24,7 @@ const DEFAULT_SETTINGS: Settings = {
   overlayOpacity: 0.8,
   displayMode: "overlay",
   engine: "tiny-cnn",
+  modelId: DEFAULT_ONNX_MODEL_ID,
   targetFps: "auto",
 };
 
@@ -33,8 +40,9 @@ export class Controller {
   private canvasParent: HTMLElement | null = null;
   private canvasAnchor: Element | null = null;
   private upscaler: Upscaler | null = null;
-  private upscalerEngine = "";
+  private upscalerKey = "";
   private failedEngine = "";
+  private failedPipelineKey = "";
   private frame = 0;
   private pendingRescan = 0;
   private lastError = "";
@@ -85,10 +93,12 @@ export class Controller {
       incomingSettings: settings,
       currentSettings: this.settings,
     });
-    const previousEngine = this.settings.engine;
+    const previousPipelineKey = getPipelineKey(this.settings);
     this.settings = { ...this.settings, ...settings };
-    if (previousEngine !== this.settings.engine) {
+    this.settings.modelId = getOnnxModelId(this.settings);
+    if (previousPipelineKey !== getPipelineKey(this.settings)) {
       this.failedEngine = "";
+      this.failedPipelineKey = "";
       this.failedEngineSkipLogged = false;
     }
     this.lastError = "";
@@ -160,7 +170,8 @@ export class Controller {
   private start(): void {
     if (!this.video) return;
     const engine = getEngine(this.settings);
-    if (this.failedEngine === engine) {
+    const pipelineKey = getPipelineKey(this.settings);
+    if (this.failedPipelineKey === pipelineKey) {
       this.lastError ||=
         "当前引擎已失败，请切换引擎或关闭后重新开启再试";
       this.canvas.hidden = true;
@@ -168,28 +179,34 @@ export class Controller {
       if (!this.failedEngineSkipLogged) {
         logger.warn("Start skipped because engine is marked failed", {
           engine,
+          modelId: this.settings.modelId,
           state: this.summarizeState(this.getState(this.lastError)),
         });
         this.failedEngineSkipLogged = true;
       }
       return;
     }
-    if (!this.upscaler || this.upscalerEngine !== engine) {
+    if (!this.upscaler || this.upscalerKey !== pipelineKey) {
       logger.info("Creating upscaler", {
         engine,
-        previousEngine: this.upscalerEngine || null,
+        modelId: this.settings.modelId,
+        previousKey: this.upscalerKey || null,
       });
       this.upscaler?.destroy();
-      if (this.upscalerEngine) {
+      if (this.upscalerKey) {
         this.replaceCanvas();
       }
-      this.upscaler = new Upscaler(this.canvas, { engine });
-      this.upscalerEngine = engine;
+      this.upscaler = new Upscaler(this.canvas, {
+        engine,
+        modelId: this.settings.modelId,
+      });
+      this.upscalerKey = pipelineKey;
     }
     this.resizeObserver.observe(this.video);
     this.syncCanvasBounds();
     logger.debug("Upscaler ready", {
       engine,
+      modelId: this.settings.modelId,
       video: this.summarizeVideo(this.video),
       canvas: {
         width: this.canvas.width,
@@ -240,9 +257,11 @@ export class Controller {
       console.warn("[Video GPU Super Resolution]", error);
       this.lastError = getErrorMessage(error);
       this.failedEngine = getEngine(this.settings);
+      this.failedPipelineKey = getPipelineKey(this.settings);
       this.failedEngineSkipLogged = false;
       logger.warn("Rendering loop failed", {
         engine: this.failedEngine,
+        modelId: this.settings.modelId,
         error,
         userMessage: this.lastError,
         video: this.summarizeVideo(this.video),
@@ -323,6 +342,11 @@ export class Controller {
       hasVideo: Boolean(this.video),
       engine: this.settings.engine,
       failedEngine: this.failedEngine,
+      modelId: this.settings.engine === "ecbsr" ? this.settings.modelId : undefined,
+      modelLabel:
+        this.settings.engine === "ecbsr"
+          ? getOnnxModelDefinition(this.settings.modelId).label
+          : undefined,
       displayMode: this.getDisplayMode(),
       overlay: {
         hidden: this.canvas.hidden,
@@ -353,9 +377,10 @@ export class Controller {
 
   private scheduleRescan(): void {
     if (!this.settings.enabled || this.pendingRescan) return;
-    if (this.failedEngine === getEngine(this.settings)) {
+    if (this.failedPipelineKey === getPipelineKey(this.settings)) {
       logger.debug("Skipping scheduled rescan because engine is marked failed", {
         engine: this.failedEngine,
+        modelId: this.settings.modelId,
       });
       return;
     }
@@ -467,6 +492,7 @@ export class Controller {
 
   private applyCanvasVisuals(): void {
     this.canvas.dataset.vgsrEngine = this.settings.engine;
+    this.canvas.dataset.vgsrModelId = this.settings.modelId;
     this.canvas.dataset.vgsrDisplayMode = this.getDisplayMode();
     const configuredOpacity = Number(this.settings.overlayOpacity);
     const opacity = this.shouldReplaceSource()
@@ -515,6 +541,8 @@ export class Controller {
       hasVideo: state.hasVideo,
       engine: state.engine,
       failedEngine: state.failedEngine,
+      modelId: state.modelId,
+      modelLabel: state.modelLabel,
       displayMode: state.displayMode,
       overlay: state.overlay,
       video: state.video,

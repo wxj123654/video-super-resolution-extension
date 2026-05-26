@@ -5,6 +5,15 @@ import type {
   VsrMessage,
 } from "./src/upscaler/types";
 
+const ONNX_MODEL_OPTIONS = [
+  { id: "ecbsr_x2_m4c8_y", label: "ECBSR Y-only x2" },
+  { id: "rgb_bicubic_x2", label: "RGB Bicubic x2" },
+] as const;
+const DEFAULT_ONNX_MODEL_ID = ONNX_MODEL_OPTIONS[0].id;
+const VALID_ONNX_MODEL_IDS: ReadonlySet<string> = new Set(
+  ONNX_MODEL_OPTIONS.map((option) => option.id),
+);
+
 const DEFAULT_SETTINGS: Settings = {
   enabled: false,
   scale: 1.5,
@@ -13,6 +22,7 @@ const DEFAULT_SETTINGS: Settings = {
   overlayOpacity: 0.8,
   displayMode: "overlay",
   engine: "tiny-cnn",
+  modelId: DEFAULT_ONNX_MODEL_ID,
   targetFps: "auto",
 };
 
@@ -28,6 +38,8 @@ const els = {
   overlayOpacityValue: document.querySelector<HTMLOutputElement>("#overlayOpacityValue")!,
   displayMode: document.querySelector<HTMLSelectElement>("#displayMode")!,
   engine: document.querySelector<HTMLSelectElement>("#engine")!,
+  modelField: document.querySelector<HTMLLabelElement>("#modelField")!,
+  modelId: document.querySelector<HTMLSelectElement>("#modelId")!,
   mode: document.querySelector<HTMLSelectElement>("#mode")!,
   targetFps: document.querySelector<HTMLSelectElement>("#targetFps")!,
   status: document.querySelector<HTMLParagraphElement>("#status")!,
@@ -38,6 +50,8 @@ const els = {
 
 let activeTabId: number | null = null;
 let settings: Settings = { ...DEFAULT_SETTINGS };
+
+renderModelOptions();
 
 init().catch((error) => {
   logger.error("Popup initialization failed", error);
@@ -79,6 +93,7 @@ for (const key of [
   "overlayOpacity",
   "displayMode",
   "engine",
+  "modelId",
   "mode",
   "targetFps",
 ] as const) {
@@ -122,18 +137,21 @@ function readSettings(): Settings {
     overlayOpacity: Number(els.overlayOpacity.value),
     displayMode: els.displayMode.value as Settings["displayMode"],
     engine: els.engine.value as EngineType,
+    modelId: els.modelId.value,
     mode: els.mode.value as Settings["mode"],
     targetFps: els.targetFps.value as Settings["targetFps"],
   });
 }
 
 function normalizeSettings(value: Partial<Settings> & { engine?: string }): Settings {
+  const modelId = normalizeOnnxModelId(value.modelId);
   return {
     ...DEFAULT_SETTINGS,
     ...value,
     engine: VALID_ENGINES.has(value.engine as EngineType)
       ? (value.engine as EngineType)
       : DEFAULT_SETTINGS.engine,
+    modelId,
   };
 }
 
@@ -146,8 +164,10 @@ function renderSettings(): void {
   els.overlayOpacityValue.value = settings.overlayOpacity.toFixed(2);
   els.displayMode.value = settings.displayMode;
   els.engine.value = settings.engine;
+  els.modelId.value = normalizeOnnxModelId(settings.modelId);
   els.mode.value = settings.mode;
   els.targetFps.value = settings.targetFps;
+  updateModelFieldVisibility();
 }
 
 async function ensureContentScript(): Promise<void> {
@@ -237,6 +257,11 @@ function applyState(state: unknown, fallbackMessage: string): void {
   if (s?.engine && s.engine !== settings.engine) {
     settings = { ...settings, engine: s.engine as EngineType };
     chrome.storage.sync.set({ engine: s.engine });
+    renderSettings();
+  }
+  if (s?.modelId && s.modelId !== settings.modelId) {
+    settings = { ...settings, modelId: String(s.modelId) };
+    chrome.storage.sync.set({ modelId: s.modelId });
     renderSettings();
   }
   if (s?.displayMode && s.displayMode !== settings.displayMode) {
@@ -499,10 +524,34 @@ function summarizeState(state: unknown): unknown {
     hasVideo: value.hasVideo,
     engine: value.engine,
     failedEngine: value.failedEngine,
+    modelId: value.modelId,
+    modelLabel: value.modelLabel,
     displayMode: value.displayMode,
     overlay: value.overlay,
     video: value.video,
   };
+}
+
+function renderModelOptions(): void {
+  els.modelId.replaceChildren(
+    ...ONNX_MODEL_OPTIONS.map((option) => {
+      const element = document.createElement("option");
+      element.value = option.id;
+      element.textContent = option.label;
+      return element;
+    }),
+  );
+}
+
+function updateModelFieldVisibility(): void {
+  els.modelField.hidden = settings.engine !== "ecbsr";
+}
+
+function normalizeOnnxModelId(modelId: unknown): string {
+  if (typeof modelId === "string" && VALID_ONNX_MODEL_IDS.has(modelId)) {
+    return modelId;
+  }
+  return DEFAULT_ONNX_MODEL_ID;
 }
 
 function createLogger(scope: string) {

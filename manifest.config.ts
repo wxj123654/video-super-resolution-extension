@@ -16,7 +16,7 @@ export default defineManifest({
   web_accessible_resources: [
     {
       resources: [
-        "models/ecbsr_x2_m4c8_y.onnx",
+        "models/*",
         "vendor/onnxruntime/ort.webgpu.min.js",
         "vendor/onnxruntime/ort-wasm-simd-threaded.wasm",
         "vendor/onnxruntime/ort-wasm-simd-threaded.jsep.wasm",
