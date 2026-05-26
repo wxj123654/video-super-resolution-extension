@@ -1,4 +1,0 @@
-interface:
-  display_name: "ORT WebGPU Extension"
-  short_description: "ORT WebGPU extension runtime patterns"
-  default_prompt: "Use $onnxruntime-webgpu-extension to wire ONNX Runtime Web into a browser extension with static assets and GPU-first fallback behavior."

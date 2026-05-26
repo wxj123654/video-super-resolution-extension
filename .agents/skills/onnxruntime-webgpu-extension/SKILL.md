@@ -1,6 +1,7 @@
 ---
 name: onnxruntime-webgpu-extension
 description: Use this skill when integrating ONNX Runtime Web into a browser extension, especially Chrome MV3 extensions that need static runtime assets, WebGPU execution, model registries, GPU-first preprocessing or compositing, and graceful CPU fallback. Helpful for `window.ort` runtime injection, `web_accessible_resources`, ORT WebGPU setup, GPU buffer tensors, and multi-model ONNX pipelines.
+compatibility: Chrome MV3 extension with ONNX Runtime Web. Requires WebGPU-capable browser for GPU path.
 ---
 
 # ONNX Runtime WebGPU Extension

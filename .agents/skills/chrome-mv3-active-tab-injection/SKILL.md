@@ -1,6 +1,7 @@
 ---
 name: chrome-mv3-active-tab-injection
 description: Use this skill when building or debugging a Chrome Manifest V3 extension that injects CSS or content scripts from a popup or action button into the active tab. Helpful for popup-driven `chrome.scripting.insertCSS()` / `executeScript()` flows, `activeTab` permission usage, content-script ping/handshake design, extension reload edge cases, and user-facing diagnostics when a page cannot be injected.
+compatibility: Chrome browser with Manifest V3 extension support. Requires activeTab permission.
 ---
 
 # Chrome MV3 Active Tab Injection

@@ -1,4 +1,0 @@
-interface:
-  display_name: "Chrome MV3 Injection"
-  short_description: "MV3 activeTab injection patterns"
-  default_prompt: "Use $chrome-mv3-active-tab-injection to implement or debug popup-driven content script injection in a Chrome MV3 extension."

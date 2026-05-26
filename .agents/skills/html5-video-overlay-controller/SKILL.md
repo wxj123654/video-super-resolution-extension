@@ -1,6 +1,7 @@
 ---
 name: html5-video-overlay-controller
 description: Use this skill when building a page-level controller that finds the right HTML5 video on a site, attaches an overlay canvas, tracks SPA or fullscreen changes, and drives a rendering backend. Helpful for browser extensions or injected page tools that need video selection heuristics, site-specific profiles, overlay placement, rescan logic, render scheduling, and failure-state handling.
+compatibility: Browser environment with HTML5 video elements. Used in Chrome extensions or injected page scripts.
 ---
 
 # HTML5 Video Overlay Controller
