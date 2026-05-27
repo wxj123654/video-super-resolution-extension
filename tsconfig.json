@@ -3,6 +3,7 @@
     "target": "ES2020",
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "jsx": "react-jsx",
     "strict": true,
     "allowJs": true,
     "esModuleInterop": true,
@@ -16,6 +17,6 @@
       "@src/*": ["./src/*"]
     }
   },
-  "include": ["src/**/*", "tests/**/*", "popup.ts", "manifest.config.ts", "vite.config.ts"],
+  "include": ["src/**/*", "tests/**/*", "manifest.config.ts", "vite.config.ts"],
   "exclude": ["node_modules", "dist", "public"]
 }
