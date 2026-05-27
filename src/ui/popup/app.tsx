@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 
 import { ONNX_MODEL_OPTIONS } from "@src/shared/extension/settings";
@@ -10,8 +9,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@src/ui/components/ui/card";
+import { Field, RangeField } from "@src/ui/components/ui/field";
 import { Select } from "@src/ui/components/ui/select";
-import { Slider } from "@src/ui/components/ui/slider";
 import { Switch } from "@src/ui/components/ui/switch";
 import {
   bootstrapPopup,
@@ -236,52 +235,5 @@ export function PopupRoot() {
         void launchOptionsPage();
       }}
     />
-  );
-}
-
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: ReactNode;
-}) {
-  return (
-    <label className="field">
-      <span className="field__label">{label}</span>
-      {children}
-    </label>
-  );
-}
-
-function RangeField({
-  label,
-  min,
-  max,
-  step,
-  value,
-  onChange,
-}: {
-  label: string;
-  min: number;
-  max: number;
-  step: number;
-  value: number;
-  onChange: (value: number) => void;
-}) {
-  return (
-    <Field label={label}>
-      <div className="range-field">
-        <Slider
-          aria-label={label}
-          min={min}
-          max={max}
-          step={step}
-          value={value}
-          onChange={(event) => onChange(Number(event.currentTarget.value))}
-        />
-        <output className="range-field__value">{value.toFixed(2)}</output>
-      </div>
-    </Field>
   );
 }
