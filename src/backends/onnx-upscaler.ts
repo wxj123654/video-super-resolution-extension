@@ -84,8 +84,8 @@ let _ortAssetUrls: { mjs: string; wasm: string } | null = null;
 function getOrtAssetUrls() {
   if (!_ortAssetUrls) {
     _ortAssetUrls = {
-      mjs: chrome.runtime.getURL("vendor/onnxruntime/ort-wasm-simd-threaded.mjs"),
-      wasm: chrome.runtime.getURL("vendor/onnxruntime/ort-wasm-simd-threaded.wasm"),
+      mjs: chrome.runtime.getURL("vendor/onnxruntime/ort-wasm-simd-threaded.jsep.mjs"),
+      wasm: chrome.runtime.getURL("vendor/onnxruntime/ort-wasm-simd-threaded.jsep.wasm"),
     };
   }
   return _ortAssetUrls;
@@ -892,7 +892,9 @@ export class EcbsrOnnxUpscaler implements UpscalerImpl {
     if (!ortRuntime.InferenceSession || !ortRuntime.Tensor) {
       throw new Error("onnxruntime-web is not available");
     }
-    configureOrtRuntime(ortRuntime, ortAdapter);
+    if (!ORT_STATE.configured) {
+      configureOrtRuntime(ortRuntime, ortAdapter);
+    }
 
     const sessionBundle = await getSharedSession(ortRuntime, this.model);
     this.session = sessionBundle.session;

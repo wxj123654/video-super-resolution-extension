@@ -37,7 +37,7 @@ export function OptionsApp({
   return (
     <main className="mx-auto max-w-5xl p-8">
       <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
-        <div className="space-y-6">
+        <div className="min-w-0 space-y-6">
           <Card>
             <CardHeader>
               <CardTitle>常规设置</CardTitle>
@@ -185,14 +185,14 @@ export function OptionsApp({
           </Card>
         </div>
 
-        <div className="space-y-6">
+        <div className="min-w-0 space-y-6">
           <Card>
             <CardHeader>
               <CardTitle>诊断</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <Button onClick={onRunDiagnostics}>运行诊断</Button>
-              <pre className="max-h-96 overflow-auto rounded-lg bg-[hsl(var(--muted))] p-4 text-xs">
+              <pre className="max-h-96 overflow-auto break-all rounded-lg bg-[hsl(var(--muted))] p-4 text-xs">
                 {model.diagnosticsText}
               </pre>
             </CardContent>

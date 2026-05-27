@@ -1,54 +1,44 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import { crx } from "@crxjs/vite-plugin";
 import react from "@vitejs/plugin-react";
 import manifest from "./manifest.config";
 import { resolve } from "path";
-import { rollup, type Plugin } from "rollup";
-import esbuild from "rollup-plugin-esbuild";
+import esbuild from "esbuild";
 import { readFileSync } from "fs";
-import { dirname, resolve as pathResolve } from "path";
 
-function rawImportPlugin(): Plugin {
+function rawPlugin(): esbuild.Plugin {
   return {
     name: "raw-import",
-    resolveId(source, importer) {
-      if (source.endsWith("?raw")) {
-        const clean = source.replace(/\?raw$/, "");
-        if (importer) {
-          const dir = dirname(importer);
-          const abs = pathResolve(dir, clean);
-          return "\0raw:" + abs;
-        }
-        return "\0raw:" + clean;
-      }
-      return null;
-    },
-    load(id) {
-      if (id.startsWith("\0raw:")) {
-        const realPath = id.slice(5);
-        const content = readFileSync(realPath, "utf-8");
-        return `export default ${JSON.stringify(content)};`;
-      }
-      return null;
+    setup(build) {
+      build.onResolve({ filter: /\?raw$/ }, (args) => ({
+        path: resolve(args.resolveDir, args.path.replace(/\?raw$/, "")),
+        namespace: "raw",
+      }));
+      build.onLoad({ filter: /.*/, namespace: "raw" }, async (args) => ({
+        contents: `export default ${JSON.stringify(readFileSync(args.path, "utf-8"))}`,
+        loader: "js",
+      }));
     },
   };
 }
 
-function iifeContentScript(isDebug: boolean): import("vite").Plugin {
+function iifeContentScript(isDebug: boolean, define: Record<string, string>): Plugin {
   return {
     name: "iife-content-script",
     async closeBundle() {
-      const input = resolve(__dirname, "src/content/index.ts");
-      const bundle = await rollup({
-        input,
-        plugins: [rawImportPlugin(), esbuild({ target: "chrome113", minify: !isDebug })],
-      });
-      await bundle.write({
-        file: resolve(__dirname, "dist/content.js"),
+      await esbuild.build({
+        entryPoints: [resolve(__dirname, "src/content/index.ts")],
+        bundle: true,
         format: "iife",
-        inlineDynamicImports: true,
+        outfile: resolve(__dirname, "dist/content.js"),
+        target: "chrome113",
+        minify: !isDebug,
+        sourcemap: isDebug,
+        define,
+        alias: { "@src": resolve(__dirname, "src") },
+        plugins: [rawPlugin()],
+        logLevel: "info",
       });
-      await bundle.close();
       console.log("\x1b[32m✓\x1b[0m content.js rebuilt as IIFE");
     },
   };
@@ -56,6 +46,7 @@ function iifeContentScript(isDebug: boolean): import("vite").Plugin {
 
 export default defineConfig(({ mode }) => {
   const isDebugBuild = mode === "debug";
+  const define = { __VSR_DEBUG__: JSON.stringify(isDebugBuild) };
 
   return {
     build: {
@@ -68,10 +59,8 @@ export default defineConfig(({ mode }) => {
         "@src": "/src",
       },
     },
-    define: {
-      __VSR_DEBUG__: JSON.stringify(isDebugBuild),
-    },
-    plugins: [react(), crx({ manifest }), iifeContentScript(isDebugBuild)],
+    define,
+    plugins: [react(), crx({ manifest }), iifeContentScript(isDebugBuild, define)],
     test: {
       environment: "jsdom",
       globals: true,

@@ -35,7 +35,7 @@ const ENGINE_LABELS: Record<Settings["engine"], string> = {
 
 export const INITIAL_POPUP_MODEL: PopupModel = {
   statusText: "正在连接当前标签页",
-  connectionLabel: "Connecting",
+  connectionLabel: "连接中",
   hasVideo: false,
   activeEngineLabel: ENGINE_LABELS[DEFAULT_SETTINGS.engine],
   settings: DEFAULT_SETTINGS,
@@ -51,7 +51,7 @@ export async function bootstrapPopup(): Promise<PopupSession> {
       model: {
         ...INITIAL_POPUP_MODEL,
         settings,
-        connectionLabel: "Unavailable",
+        connectionLabel: "不可用",
         statusText: "未找到可用标签页",
         activeEngineLabel: getEngineLabel(settings.engine),
       },
@@ -68,7 +68,7 @@ export async function bootstrapPopup(): Promise<PopupSession> {
 
     return {
       tabId: tab.id,
-      model: mapPopupModel(syncedSettings, state, "Connected"),
+      model: mapPopupModel(syncedSettings, state, "已连接"),
     };
   } catch (error) {
     console.error("[VSR] bootstrapPopup failed:", error);
@@ -77,7 +77,7 @@ export async function bootstrapPopup(): Promise<PopupSession> {
       model: {
         settings,
         hasVideo: false,
-        connectionLabel: "Unavailable",
+        connectionLabel: "不可用",
         activeEngineLabel: getEngineLabel(settings.engine),
         statusText: "当前页面无法连接或不支持注入",
       },
@@ -97,7 +97,7 @@ export async function updatePopupSettings(
       model: {
         settings,
         hasVideo: false,
-        connectionLabel: "Unavailable",
+        connectionLabel: "不可用",
         activeEngineLabel: getEngineLabel(settings.engine),
         statusText: "设置已保存，但没有可用标签页",
       },
@@ -113,7 +113,7 @@ export async function updatePopupSettings(
 
     return {
       tabId,
-      model: mapPopupModel(syncedSettings, state, "Connected"),
+      model: mapPopupModel(syncedSettings, state, "已连接"),
     };
   } catch (error) {
     console.error("[VSR] updatePopupSettings failed:", error);
@@ -122,7 +122,7 @@ export async function updatePopupSettings(
       model: {
         settings,
         hasVideo: false,
-        connectionLabel: "Unavailable",
+        connectionLabel: "不可用",
         activeEngineLabel: getEngineLabel(settings.engine),
         statusText: "设置已保存，但当前页面未响应",
       },
@@ -139,7 +139,7 @@ export async function rescanPopup(tabId: number | null): Promise<PopupSession> {
       model: {
         ...INITIAL_POPUP_MODEL,
         settings,
-        connectionLabel: "Unavailable",
+        connectionLabel: "不可用",
         statusText: "没有可重新扫描的标签页",
         activeEngineLabel: getEngineLabel(settings.engine),
       },
@@ -155,7 +155,7 @@ export async function rescanPopup(tabId: number | null): Promise<PopupSession> {
 
     return {
       tabId,
-      model: mapPopupModel(syncedSettings, state, "Connected"),
+      model: mapPopupModel(syncedSettings, state, "已连接"),
     };
   } catch (error) {
     console.error("[VSR] rescanPopup failed:", error);
@@ -164,7 +164,7 @@ export async function rescanPopup(tabId: number | null): Promise<PopupSession> {
       model: {
         settings,
         hasVideo: false,
-        connectionLabel: "Unavailable",
+        connectionLabel: "不可用",
         activeEngineLabel: getEngineLabel(settings.engine),
         statusText: "重新扫描失败，当前页面未响应",
       },

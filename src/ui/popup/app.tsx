@@ -43,8 +43,8 @@ export function PopupApp({
       <Card>
         <CardHeader className="popup-header">
           <div>
-            <p className="popup-eyebrow">Current tab controls</p>
-            <CardTitle>Video GPU Super Resolution</CardTitle>
+            <p className="popup-eyebrow">当前标签页控制</p>
+            <CardTitle>视频 GPU 超分辨率</CardTitle>
             <p className="popup-subtitle">{model.statusText}</p>
           </div>
           <Switch
@@ -57,27 +57,27 @@ export function PopupApp({
         </CardHeader>
 
         <CardContent className="popup-stack">
-          <section className="status-grid" aria-label="Status">
+          <section className="status-grid" aria-label="状态">
             <div className="status-item">
-              <span className="status-item__label">Connection</span>
+              <span className="status-item__label">连接</span>
               <Badge className={statusTone === "warn" ? "ui-badge--warn" : undefined}>
                 {model.connectionLabel}
               </Badge>
             </div>
             <div className="status-item">
-              <span className="status-item__label">Video</span>
-              <strong>{model.hasVideo ? "Detected" : "Not detected"}</strong>
+              <span className="status-item__label">视频</span>
+              <strong>{model.hasVideo ? "已检测" : "未检测"}</strong>
             </div>
             <div className="status-item">
-              <span className="status-item__label">Engine</span>
+              <span className="status-item__label">引擎</span>
               <strong>{model.activeEngineLabel}</strong>
             </div>
           </section>
 
-          <section className="control-section" aria-label="Core controls">
-            <Field label="Engine">
+          <section className="control-section" aria-label="核心控制">
+            <Field label="引擎">
               <Select
-                aria-label="Engine"
+                aria-label="引擎"
                 value={settings.engine}
                 onChange={(event) =>
                   onSettingsChange({
@@ -85,16 +85,16 @@ export function PopupApp({
                   })
                 }
               >
-                <option value="webgpu">WebGPU Super Resolution</option>
+                <option value="webgpu">WebGPU 超分辨率</option>
                 <option value="tiny-cnn">Tiny CNN (WebGL)</option>
                 <option value="ecbsr">ECBSR (ONNX/WebGPU)</option>
               </Select>
             </Field>
 
             {settings.engine === "ecbsr" ? (
-              <Field label="Model">
+              <Field label="模型">
                 <Select
-                  aria-label="Model"
+                  aria-label="模型"
                   value={settings.modelId}
                   onChange={(event) =>
                     onSettingsChange({ modelId: event.currentTarget.value })
@@ -109,9 +109,9 @@ export function PopupApp({
               </Field>
             ) : null}
 
-            <Field label="Display mode">
+            <Field label="显示模式">
               <Select
-                aria-label="Display mode"
+                aria-label="显示模式"
                 value={settings.displayMode}
                 onChange={(event) =>
                   onSettingsChange({
@@ -120,14 +120,14 @@ export function PopupApp({
                   })
                 }
               >
-                <option value="overlay">Overlay</option>
-                <option value="replace">Replace source</option>
+                <option value="overlay">叠加</option>
+                <option value="replace">替换源</option>
               </Select>
             </Field>
 
-            <Field label="Scale">
+            <Field label="缩放倍数">
               <Select
-                aria-label="Scale"
+                aria-label="缩放倍数"
                 value={String(settings.scale)}
                 onChange={(event) =>
                   onSettingsChange({ scale: Number(event.currentTarget.value) })
@@ -140,9 +140,9 @@ export function PopupApp({
             </Field>
           </section>
 
-          <section className="control-section" aria-label="Fine tuning">
+          <section className="control-section" aria-label="精细调整">
             <RangeField
-              label="Sharpness"
+              label="锐度"
               value={settings.sharpness}
               min={0}
               max={1.4}
@@ -150,7 +150,7 @@ export function PopupApp({
               onChange={(value) => onSettingsChange({ sharpness: value })}
             />
             <RangeField
-              label="Overlay opacity"
+              label="叠加透明度"
               value={settings.overlayOpacity}
               min={0}
               max={1}
@@ -158,9 +158,9 @@ export function PopupApp({
               onChange={(value) => onSettingsChange({ overlayOpacity: value })}
             />
 
-            <Field label="Mode">
+            <Field label="模式">
               <Select
-                aria-label="Mode"
+                aria-label="模式"
                 value={settings.mode}
                 onChange={(event) =>
                   onSettingsChange({
@@ -168,15 +168,15 @@ export function PopupApp({
                   })
                 }
               >
-                <option value="balanced">Balanced</option>
+                <option value="balanced">平衡</option>
                 <option value="quality">Quality first</option>
                 <option value="performance">Performance first</option>
               </Select>
             </Field>
 
-            <Field label="Target FPS">
+            <Field label="目标帧率">
               <Select
-                aria-label="Target FPS"
+                aria-label="目标帧率"
                 value={settings.targetFps}
                 onChange={(event) =>
                   onSettingsChange({
@@ -184,7 +184,7 @@ export function PopupApp({
                   })
                 }
               >
-                <option value="auto">Auto</option>
+                <option value="auto">自动</option>
                 <option value="60">60 fps</option>
                 <option value="30">30 fps</option>
                 <option value="24">24 fps</option>
@@ -194,9 +194,9 @@ export function PopupApp({
           </section>
 
           <section className="action-row">
-            <Button onClick={onRescan}>Rescan videos</Button>
+            <Button onClick={onRescan}>重新扫描视频</Button>
             <Button variant="secondary" onClick={onOpenOptions}>
-              Full settings
+              完整设置
             </Button>
           </section>
         </CardContent>
