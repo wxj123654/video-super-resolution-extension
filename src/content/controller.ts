@@ -355,7 +355,7 @@ export class Controller {
           : undefined,
       displayMode: this.getDisplayMode(),
       overlay: {
-        hidden: this.canvas.hidden,
+        hidden: Boolean(this.canvas.hidden),
         opacity: this.canvas.style.opacity,
         width: this.canvas.width,
         height: this.canvas.height,
