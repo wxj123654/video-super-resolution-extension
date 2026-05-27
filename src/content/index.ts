@@ -62,6 +62,10 @@ if (!claimInjectionLock()) {
       logger.warn("Received unsupported runtime message", {
         message: toLogDetails(message),
       });
-    },
-  );
-}
+    } catch (error) {
+      logger.error("Message handler error", { type: message?.type, error });
+      sendResponse({ ok: false, message: `处理消息失败: ${error instanceof Error ? error.message : String(error)}` });
+    }
+  },
+);
+

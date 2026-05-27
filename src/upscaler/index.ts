@@ -28,7 +28,7 @@ export class Upscaler {
 
 function getBackend(engine: string): EngineType {
   if (engine === "webgpu") return "webgpu";
-  if (engine === "ecbsr") return "ecbsr";
+  if (engine === "onnx") return "onnx";
   if (engine === "tiny-cnn") return "tiny-cnn";
   return "tiny-cnn";
 }
@@ -39,6 +39,6 @@ function createBackend(
   options: { engine: string; modelId?: string },
 ): UpscalerImpl {
   if (backend === "webgpu") return new WebGpuUpscaler(canvas);
-  if (backend === "ecbsr") return new EcbsrOnnxUpscaler(canvas, options);
+  if (backend === "onnx") return new EcbsrOnnxUpscaler(canvas, options);
   return new TinyCnnUpscaler(canvas);
 }

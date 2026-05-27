@@ -10,7 +10,9 @@ import {
   configureWebGpuContext,
   type WebGpuContextState,
 } from "../upscaler/webgpu-utilities";
-import { getOnnxModelDefinition } from "./onnx-models";
+import { getOnnxModelDefinition, resolvePrecisionModel } from "./onnx-models";
+import { resolveModelBuffer, isModelCached } from "./model-cache";
+import { supportsFp16 } from "./onnx-webgpu-utilities";
 import lumaShaderCode from "../shaders/onnx-luma.wgsl?raw";
 import compositeShaderCode from "../shaders/onnx-composite.wgsl?raw";
 import videoCopyShaderCode from "../shaders/onnx-video-copy.wgsl?raw";
@@ -18,6 +20,8 @@ import packLumaShaderCode from "../shaders/onnx-pack-luma.wgsl?raw";
 import packRgbShaderCode from "../shaders/onnx-pack-rgb.wgsl?raw";
 import rgbUnpackShaderCode from "../shaders/onnx-rgb-unpack.wgsl?raw";
 import presentShaderCode from "../shaders/onnx-present.wgsl?raw";
+import tileExtractShaderCode from "../shaders/onnx-tile-extract.wgsl?raw";
+import tileCopyShaderCode from "../shaders/onnx-tile-copy.wgsl?raw";
 
 type OrtRuntime = typeof OnnxRuntimeWeb;
 type SupportedTensorData = Float32Array | Float64Array | Uint8Array;
@@ -525,6 +529,7 @@ class WebGpuInputPacker {
     height: number,
     packing: OnnxInputPacking,
     dstBuffer: GPUBuffer,
+    preprocessing: "range_01" | "range_neg1_1" = "range_01",
   ): Promise<void> {
     if (!this.paramsBuffer || !this.lumaPipeline || !this.rgbPipeline) {
       throw new Error("WebGPU input packer is not initialized");
@@ -532,11 +537,16 @@ class WebGpuInputPacker {
 
     const pipeline =
       packing === "luma_f32_planar" ? this.lumaPipeline : this.rgbPipeline;
-    this.device.queue.writeBuffer(
-      this.paramsBuffer,
-      0,
-      new Uint32Array([width, height, 0, 0]),
-    );
+    const normScale = preprocessing === "range_neg1_1" ? 2.0 : 1.0;
+    const normBias = preprocessing === "range_neg1_1" ? -1.0 : 0.0;
+    const params = new ArrayBuffer(16);
+    const u32 = new Uint32Array(params, 0, 2);
+    const f32 = new Float32Array(params, 8, 2);
+    u32[0] = width;
+    u32[1] = height;
+    f32[0] = normScale;
+    f32[1] = normBias;
+    this.device.queue.writeBuffer(this.paramsBuffer, 0, params);
 
     const encoder = this.device.createCommandEncoder();
     this.frameRenderer.encodeCapturePass(encoder, video, width, height);
@@ -851,6 +861,19 @@ export class EcbsrOnnxUpscaler implements UpscalerImpl {
   private outputWidth = 0;
   private outputHeight = 0;
 
+  // GPU tiled inference resources
+  private tileExtractPipeline: GPUComputePipeline | null = null;
+  private tileCopyPipeline: GPUComputePipeline | null = null;
+  private tileExtractParamsBuffer: GPUBuffer | null = null;
+  private tileCopyParamsBuffer: GPUBuffer | null = null;
+  private tileInputGpuBuffer: GPUBuffer | null = null;
+  private tileOutputGpuBuffer: GPUBuffer | null = null;
+  private tiledFullOutputGpuBuffer: GPUBuffer | null = null;
+  private tiledBufferTileSize = 0;
+  private tiledBufferChannels = 0;
+  private tiledFullOutputW = 0;
+  private tiledFullOutputH = 0;
+
   private gpuInputEnabled = false;
   private gpuOutputEnabled = false;
   private activeInputPath: OnnxPathMode = "cpu";
@@ -888,6 +911,12 @@ export class EcbsrOnnxUpscaler implements UpscalerImpl {
       allowSoftware: true,
       preferCompatibility: false,
     });
+
+    // Resolve precision alternatives based on GPU capabilities
+    if (this.model.precisionAlternatives) {
+      this.model = resolvePrecisionModel(this.model.id, supportsFp16(ortAdapter));
+    }
+
     const ortRuntime = getOrtRuntime();
     if (!ortRuntime.InferenceSession || !ortRuntime.Tensor) {
       throw new Error("onnxruntime-web is not available");
@@ -956,6 +985,43 @@ export class EcbsrOnnxUpscaler implements UpscalerImpl {
       throw new Error(
         `Unsupported composite mode: ${this.model.compositeMode} for model ${this.model.id}`,
       );
+    }
+
+    // Initialize GPU tile pipelines if model uses tiled inference
+    if (this.model.tileSize && this.model.tileSize > 0) {
+      try {
+        const extractModule = this.gpuDevice.createShaderModule({
+          code: tileExtractShaderCode,
+        });
+        this.tileExtractPipeline = await this.gpuDevice.createComputePipelineAsync({
+          layout: "auto",
+          compute: { module: extractModule, entryPoint: "computeMain" },
+        });
+
+        const copyModule = this.gpuDevice.createShaderModule({
+          code: tileCopyShaderCode,
+        });
+        this.tileCopyPipeline = await this.gpuDevice.createComputePipelineAsync({
+          layout: "auto",
+          compute: { module: copyModule, entryPoint: "computeMain" },
+        });
+
+        this.tileExtractParamsBuffer = this.gpuDevice.createBuffer({
+          size: 32,
+          usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        });
+        this.tileCopyParamsBuffer = this.gpuDevice.createBuffer({
+          size: 32,
+          usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        });
+      } catch (error) {
+        this.tileExtractPipeline = null;
+        this.tileCopyPipeline = null;
+        console.warn(
+          `[Video GPU Super Resolution][ONNX][${this.model.id}] GPU tile pipelines unavailable, using CPU fallback:`,
+          (error as Error).message,
+        );
+      }
     }
 
     if (ECBSR_DEBUG) {
@@ -1180,6 +1246,13 @@ export class EcbsrOnnxUpscaler implements UpscalerImpl {
   }
 
   private async runInference(video: HTMLVideoElement): Promise<void> {
+    if (this.model.tileSize && this.model.tileSize > 0) {
+      return this.runTiledInference(video);
+    }
+    return this.runFullInference(video);
+  }
+
+  private async runFullInference(video: HTMLVideoElement): Promise<void> {
     const startedAt = performance.now();
     const width = this.modelInputWidth;
     const height = this.modelInputHeight;
@@ -1251,6 +1324,368 @@ export class EcbsrOnnxUpscaler implements UpscalerImpl {
       outputPath: this.activeOutputPath,
       compositePath: this.activeCompositePath,
     });
+  }
+
+  private async runTiledInference(video: HTMLVideoElement): Promise<void> {
+    const width = this.modelInputWidth;
+    const height = this.modelInputHeight;
+    const ortRuntime = getOrtRuntime();
+    if (!ortRuntime.Tensor || !this.session) {
+      throw new Error("onnxruntime-web session is unavailable");
+    }
+
+    const tileSize = this.model.tileSize!;
+    const scale = this.model.scale;
+    const overlap = Math.max(8, Math.floor(tileSize * 0.1));
+    const channels = this.model.inputChannels;
+
+    const tiles: Array<{ x: number; y: number; w: number; h: number }> = [];
+    for (let y = 0; y < height; y += tileSize - overlap) {
+      for (let x = 0; x < width; x += tileSize - overlap) {
+        const tw = Math.min(tileSize, width - x);
+        const th = Math.min(tileSize, height - y);
+        tiles.push({ x, y, w: tw, h: th });
+      }
+    }
+
+    const outW = width * scale;
+    const outH = height * scale;
+
+    const canGpu = this.ensureTiledGpuResources(outW, outH, channels);
+    if (canGpu) {
+      return this.runTiledInferenceGpu(video, width, height, tiles, channels, scale, outW, outH);
+    }
+    return this.runTiledInferenceCpu(video, width, height, tiles, channels, scale, outW, outH);
+  }
+
+  private ensureTiledGpuResources(
+    outW: number,
+    outH: number,
+    channels: number,
+  ): boolean {
+    if (!this.gpuDevice || !this.tileExtractPipeline || !this.tileCopyPipeline || !this.inputPacker) {
+      return false;
+    }
+    const ortRuntime = getOrtRuntime();
+    if (!ortRuntime.Tensor) return false;
+
+    const tileSize = this.model.tileSize!;
+    const scale = this.model.scale;
+
+    if (
+      !this.tileInputGpuBuffer ||
+      this.tiledBufferTileSize < tileSize ||
+      this.tiledBufferChannels < channels
+    ) {
+      this.tileInputGpuBuffer?.destroy();
+      const inputSize = Math.ceil(tileSize * tileSize * channels * 4 / 16) * 16;
+      this.tileInputGpuBuffer = this.gpuDevice.createBuffer({
+        size: inputSize,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+      });
+
+      this.tileOutputGpuBuffer?.destroy();
+      const outputSize = Math.ceil(tileSize * scale * tileSize * scale * channels * 4 / 16) * 16;
+      this.tileOutputGpuBuffer = this.gpuDevice.createBuffer({
+        size: outputSize,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+      });
+
+      this.tiledBufferTileSize = tileSize;
+      this.tiledBufferChannels = channels;
+    }
+
+    if (this.tiledFullOutputW !== outW || this.tiledFullOutputH !== outH) {
+      this.tiledFullOutputGpuBuffer?.destroy();
+      const fullSize = Math.ceil(outW * outH * channels * 4 / 16) * 16;
+      this.tiledFullOutputGpuBuffer = this.gpuDevice.createBuffer({
+        size: fullSize,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+      });
+      this.tiledFullOutputW = outW;
+      this.tiledFullOutputH = outH;
+    }
+
+    return true;
+  }
+
+  private async runTiledInferenceGpu(
+    video: HTMLVideoElement,
+    width: number,
+    height: number,
+    tiles: Array<{ x: number; y: number; w: number; h: number }>,
+    channels: number,
+    scale: number,
+    outW: number,
+    outH: number,
+  ): Promise<void> {
+    const startedAt = performance.now();
+    const ortRuntime = getOrtRuntime();
+
+    const preStartedAt = performance.now();
+    await this.inputPacker!.packVideoToBuffer(
+      video,
+      width,
+      height,
+      this.model.inputPacking,
+      this.inputGpuBuffer!,
+      this.model.preprocessing ?? "range_01",
+    );
+    const preEndedAt = performance.now();
+
+    // Clear the full output buffer
+    const clearEncoder = this.gpuDevice!.createCommandEncoder();
+    clearEncoder.clearBuffer(this.tiledFullOutputGpuBuffer!, 0);
+    this.gpuDevice!.queue.submit([clearEncoder.finish()]);
+
+    const inferStartedAt = performance.now();
+
+    for (let t = 0; t < tiles.length; t++) {
+      const tile = tiles[t];
+
+      // Extract tile from full GPU input
+      this.dispatchTileExtract(tile.x, tile.y, tile.w, tile.h, width, height, channels);
+
+      const tileInputTensor = ortRuntime.Tensor.fromGpuBuffer(
+        this.tileInputGpuBuffer!,
+        { dataType: "float32", dims: [1, channels, tile.h, tile.w] },
+      );
+
+      const tileOutW = tile.w * scale;
+      const tileOutH = tile.h * scale;
+      const tileOutputTensor = ortRuntime.Tensor.fromGpuBuffer(
+        this.tileOutputGpuBuffer!,
+        { dataType: "float32", dims: [1, channels, tileOutH, tileOutW] },
+      );
+
+      await this.session!.run(
+        { [this.inputName]: tileInputTensor },
+        { [this.outputName]: tileOutputTensor },
+      );
+
+      const dstX = tile.x * scale;
+      const dstY = tile.y * scale;
+      this.dispatchTileCopy(dstX, dstY, tileOutW, tileOutH, outW, outH, channels);
+    }
+
+    const inferEndedAt = performance.now();
+
+    const postStartedAt = performance.now();
+    if (this.model.compositeMode === "rgb_replace" && this.gpuRgbCompositor) {
+      this.gpuRgbCompositor.uploadRgbFromBuffer(
+        this.tiledFullOutputGpuBuffer!,
+        outW,
+        outH,
+      );
+    } else if (this.model.compositeMode === "luma_replace" && this.lumaCompositor) {
+      this.lumaCompositor.uploadLumaFromBuffer(
+        this.tiledFullOutputGpuBuffer!,
+        outW,
+        outH,
+      );
+    }
+
+    const finishedAt = performance.now();
+    this.outputReady = true;
+
+    this.recordStats({
+      preMs: preEndedAt - preStartedAt,
+      inferMs: inferEndedAt - inferStartedAt,
+      postMs: finishedAt - postStartedAt,
+      totalMs: finishedAt - startedAt,
+      width,
+      height,
+      outputWidth: outW,
+      outputHeight: outH,
+      inputPath: "gpu",
+      outputPath: "gpu",
+      compositePath: this.activeCompositePath,
+    });
+  }
+
+  private async runTiledInferenceCpu(
+    video: HTMLVideoElement,
+    width: number,
+    height: number,
+    tiles: Array<{ x: number; y: number; w: number; h: number }>,
+    channels: number,
+    scale: number,
+    outW: number,
+    outH: number,
+  ): Promise<void> {
+    const startedAt = performance.now();
+    const ortRuntime = getOrtRuntime();
+
+    const preStartedAt = performance.now();
+    const inputData = this.model.inputPacking === "rgb_f32_planar"
+      ? this.extractRgbCpuPath(video, width, height)
+      : this.extractLumaCpuPath(video, width, height);
+    const preEndedAt = performance.now();
+
+    const outputPlaneSize = outW * outH;
+    const outputData = new Float32Array(outputPlaneSize * channels);
+
+    const inferStartedAt = performance.now();
+
+    for (let t = 0; t < tiles.length; t++) {
+      const tile = tiles[t];
+      const tilePlaneSize = tile.w * tile.h;
+      const tileInput = new Float32Array(tilePlaneSize * channels);
+
+      for (let c = 0; c < channels; c++) {
+        for (let ty = 0; ty < tile.h; ty++) {
+          const srcOffset = c * width * height + (tile.y + ty) * width + tile.x;
+          const dstOffset = c * tilePlaneSize + ty * tile.w;
+          tileInput.set(
+            inputData.subarray(srcOffset, srcOffset + tile.w),
+            dstOffset,
+          );
+        }
+      }
+
+      const tileTensor = new ortRuntime.Tensor(
+        "float32",
+        tileInput,
+        [1, channels, tile.h, tile.w],
+      );
+
+      const tileOutW = tile.w * scale;
+      const tileOutH = tile.h * scale;
+
+      const tileOutData = new Float32Array(tileOutW * tileOutH * channels);
+      const tileOutTensor = new ortRuntime.Tensor(
+        "float32",
+        tileOutData,
+        [1, channels, tileOutH, tileOutW],
+      );
+
+      await this.session!.run(
+        { [this.inputName]: tileTensor },
+        { [this.outputName]: tileOutTensor },
+      );
+
+      const tileOutPlaneSize = tileOutW * tileOutH;
+      const dstX = tile.x * scale;
+      const dstY = tile.y * scale;
+
+      for (let c = 0; c < channels; c++) {
+        for (let oy = 0; oy < tileOutH; oy++) {
+          const srcOff = c * tileOutPlaneSize + oy * tileOutW;
+          const dstOff = c * outputPlaneSize + (dstY + oy) * outW + dstX;
+          outputData.set(
+            tileOutData.subarray(srcOff, srcOff + tileOutW),
+            dstOff,
+          );
+        }
+      }
+    }
+
+    const inferEndedAt = performance.now();
+
+    const postStartedAt = performance.now();
+    if (this.model.compositeMode === "rgb_replace") {
+      if (this.gpuRgbCompositor && this.gpuDevice) {
+        const alignedSize = Math.ceil(outputData.byteLength / 16) * 16;
+        const tempBuffer = this.gpuDevice.createBuffer({
+          size: alignedSize,
+          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        });
+        this.gpuDevice.queue.writeBuffer(tempBuffer, 0, outputData);
+        this.gpuRgbCompositor.uploadRgbFromBuffer(tempBuffer, outW, outH);
+        tempBuffer.destroy();
+      } else if (this.rgbCompositor) {
+        this.rgbCompositor.uploadPlanarRgbData(outputData, outW, outH);
+      }
+    } else if (this.model.compositeMode === "luma_replace" && this.lumaCompositor) {
+      this.lumaCompositor.uploadLumaFromData(outputData, outW, outH);
+    }
+
+    const finishedAt = performance.now();
+    this.outputReady = true;
+
+    this.recordStats({
+      preMs: preEndedAt - preStartedAt,
+      inferMs: inferEndedAt - inferStartedAt,
+      postMs: finishedAt - postStartedAt,
+      totalMs: finishedAt - startedAt,
+      width,
+      height,
+      outputWidth: outW,
+      outputHeight: outH,
+      inputPath: this.activeInputPath,
+      outputPath: "cpu",
+      compositePath: this.activeCompositePath,
+    });
+  }
+
+  private dispatchTileExtract(
+    tileX: number, tileY: number, tileW: number, tileH: number,
+    srcW: number, srcH: number, channels: number,
+  ): void {
+    const paramsData = new Uint32Array(8);
+    paramsData[0] = srcW;
+    paramsData[1] = srcH;
+    paramsData[2] = channels;
+    paramsData[3] = tileX;
+    paramsData[4] = tileY;
+    paramsData[5] = tileW;
+    paramsData[6] = tileH;
+    this.gpuDevice!.queue.writeBuffer(this.tileExtractParamsBuffer!, 0, paramsData);
+
+    const bindGroup = this.gpuDevice!.createBindGroup({
+      layout: this.tileExtractPipeline!.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: this.inputGpuBuffer! } },
+        { binding: 1, resource: { buffer: this.tileInputGpuBuffer! } },
+        { binding: 2, resource: { buffer: this.tileExtractParamsBuffer! } },
+      ],
+    });
+
+    const encoder = this.gpuDevice!.createCommandEncoder();
+    const pass = encoder.beginComputePass();
+    pass.setPipeline(this.tileExtractPipeline!);
+    pass.setBindGroup(0, bindGroup);
+    pass.dispatchWorkgroups(
+      Math.ceil(tileW / 8),
+      Math.ceil(tileH / 8),
+    );
+    pass.end();
+    this.gpuDevice!.queue.submit([encoder.finish()]);
+  }
+
+  private dispatchTileCopy(
+    dstX: number, dstY: number, tileW: number, tileH: number,
+    fullOutW: number, fullOutH: number, channels: number,
+  ): void {
+    const paramsData = new Uint32Array(8);
+    paramsData[0] = fullOutW;
+    paramsData[1] = fullOutH;
+    paramsData[2] = channels;
+    paramsData[3] = dstX;
+    paramsData[4] = dstY;
+    paramsData[5] = tileW;
+    paramsData[6] = tileH;
+    this.gpuDevice!.queue.writeBuffer(this.tileCopyParamsBuffer!, 0, paramsData);
+
+    const bindGroup = this.gpuDevice!.createBindGroup({
+      layout: this.tileCopyPipeline!.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: this.tileOutputGpuBuffer! } },
+        { binding: 1, resource: { buffer: this.tiledFullOutputGpuBuffer! } },
+        { binding: 2, resource: { buffer: this.tileCopyParamsBuffer! } },
+      ],
+    });
+
+    const encoder = this.gpuDevice!.createCommandEncoder();
+    const pass = encoder.beginComputePass();
+    pass.setPipeline(this.tileCopyPipeline!);
+    pass.setBindGroup(0, bindGroup);
+    pass.dispatchWorkgroups(
+      Math.ceil(tileW / 8),
+      Math.ceil(tileH / 8),
+    );
+    pass.end();
+    this.gpuDevice!.queue.submit([encoder.finish()]);
   }
 
   private async handleLumaOutput(
@@ -1336,6 +1771,7 @@ export class EcbsrOnnxUpscaler implements UpscalerImpl {
           height,
           this.model.inputPacking,
           this.inputGpuBuffer,
+          this.model.preprocessing ?? "range_01",
         );
         this.activeInputPath = "gpu";
         return this.inputTensor;
@@ -1399,6 +1835,18 @@ export class EcbsrOnnxUpscaler implements UpscalerImpl {
     this.outputGpuBuffer = null;
     this.inputTensor = null;
     this.outputTensor = null;
+    this.tileExtractPipeline = null;
+    this.tileCopyPipeline = null;
+    this.tileExtractParamsBuffer?.destroy();
+    this.tileExtractParamsBuffer = null;
+    this.tileCopyParamsBuffer?.destroy();
+    this.tileCopyParamsBuffer = null;
+    this.tileInputGpuBuffer?.destroy();
+    this.tileInputGpuBuffer = null;
+    this.tileOutputGpuBuffer?.destroy();
+    this.tileOutputGpuBuffer = null;
+    this.tiledFullOutputGpuBuffer?.destroy();
+    this.tiledFullOutputGpuBuffer = null;
     this.gpuDevice = null;
     this.gpuInputEnabled = false;
     this.gpuOutputEnabled = false;
@@ -1449,25 +1897,78 @@ async function getSharedSession(
     return existing;
   }
 
-  const modelUrl = chrome.runtime.getURL(model.modelPath);
   if (ECBSR_DEBUG) {
     console.info(
-      `[Video GPU Super Resolution][ONNX][${model.id}] create session model=${modelUrl} executionProvider=${model.executionProvider}`,
+      `[Video GPU Super Resolution][ONNX][${model.id}] create session source=${model.source?.type ?? "bundled"} executionProvider=${model.executionProvider}`,
     );
   }
 
-  const sessionPromise = ortNs.InferenceSession.create(modelUrl, {
-    executionProviders: [{ name: model.executionProvider }],
-    graphOptimizationLevel: "all",
-  })
-    .then((session) => {
-      ORT_STATE.sessionCount += 1;
-      return {
-        session,
-        inputName: session.inputNames[0] || "input",
-        outputName: session.outputNames[0] || "output",
+  const sessionPromise = (async () => {
+    const sessionOptions = {
+      executionProviders: [{ name: model.executionProvider }],
+      graphOptimizationLevel: "all" as const,
+    };
+
+    let session: OnnxRuntimeWeb.InferenceSession;
+    if (!model.source || model.source.type === "bundled") {
+      const modelUrl = chrome.runtime.getURL(model.modelPath);
+      session = await ortNs.InferenceSession.create(modelUrl, sessionOptions);
+    } else {
+      const onProgress = (loaded: number, total: number): void => {
+        try {
+          chrome.runtime.sendMessage({
+            type: "VSR_MODEL_STATUS",
+            modelStatus: {
+              modelId: model.id,
+              state: "downloading" as const,
+              progress: loaded,
+              total,
+            },
+          });
+        } catch {
+          // popup may be closed
+        }
       };
-    })
+      const cached = await isModelCached(model.id);
+      if (!cached) {
+        try {
+          chrome.runtime.sendMessage({
+            type: "VSR_MODEL_STATUS",
+            modelStatus: { modelId: model.id, state: "downloading" as const, progress: 0, total: model.source?.fileSize ?? 0 },
+          });
+        } catch { /* ignore */ }
+      }
+      try {
+        const buffer = await resolveModelBuffer(model, onProgress);
+        session = await ortNs.InferenceSession.create(buffer, sessionOptions);
+        try {
+          chrome.runtime.sendMessage({
+            type: "VSR_MODEL_STATUS",
+            modelStatus: { modelId: model.id, state: "ready" as const },
+          });
+        } catch { /* ignore */ }
+      } catch (downloadError) {
+        try {
+          chrome.runtime.sendMessage({
+            type: "VSR_MODEL_STATUS",
+            modelStatus: {
+              modelId: model.id,
+              state: "error" as const,
+              error: downloadError instanceof Error ? downloadError.message : String(downloadError),
+            },
+          });
+        } catch { /* ignore */ }
+        throw downloadError;
+      }
+    }
+
+    ORT_STATE.sessionCount += 1;
+    return {
+      session,
+      inputName: session.inputNames[0] || "input",
+      outputName: session.outputNames[0] || "output",
+    };
+  })()
     .catch((error: Error) => {
       ORT_STATE.sessionPromises.delete(model.id);
       console.error(
@@ -1497,18 +1998,32 @@ function alignDimension(
 async function getTensorDataAsync(
   tensor: OnnxRuntimeWeb.Tensor,
 ): Promise<SupportedTensorData> {
+  // Try direct data access first (works for CPU-backed tensors)
+  const directData = tensor.data;
+  if (
+    directData instanceof Float32Array ||
+    directData instanceof Float64Array ||
+    directData instanceof Uint8Array
+  ) {
+    return directData;
+  }
+
+  // Try async getData for GPU-backed tensors with downloader
   const getData = (tensor as OnnxRuntimeWeb.Tensor & {
     getData?: () => Promise<unknown>;
   }).getData;
 
-  const data = typeof getData === "function" ? await getData.call(tensor) : tensor.data;
-  if (
-    data instanceof Float32Array ||
-    data instanceof Float64Array ||
-    data instanceof Uint8Array
-  ) {
-    return data;
+  if (typeof getData === "function") {
+    const data = await getData.call(tensor);
+    if (
+      data instanceof Float32Array ||
+      data instanceof Float64Array ||
+      data instanceof Uint8Array
+    ) {
+      return data;
+    }
   }
+
   throw new Error(`Unsupported ONNX tensor data type: ${tensor.type}`);
 }
 

@@ -1,8 +1,8 @@
 struct PackParams {
   width: u32,
   height: u32,
-  _pad0: u32,
-  _pad1: u32,
+  normScale: f32,
+  normBias: f32,
 };
 
 @group(0) @binding(0) var srcTex: texture_2d<f32>;
@@ -18,7 +18,7 @@ fn computeMain(@builtin(global_invocation_id) gid: vec3<u32>) {
   let color = textureLoad(srcTex, vec2i(gid.xy), 0);
   let planeSize = params.width * params.height;
   let pixelIndex = gid.y * params.width + gid.x;
-  dstBuffer[pixelIndex] = color.r;
-  dstBuffer[planeSize + pixelIndex] = color.g;
-  dstBuffer[planeSize * 2u + pixelIndex] = color.b;
+  dstBuffer[pixelIndex] = color.r * params.normScale + params.normBias;
+  dstBuffer[planeSize + pixelIndex] = color.g * params.normScale + params.normBias;
+  dstBuffer[planeSize * 2u + pixelIndex] = color.b * params.normScale + params.normBias;
 }

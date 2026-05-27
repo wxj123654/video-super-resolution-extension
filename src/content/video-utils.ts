@@ -48,8 +48,8 @@ export function isRenderableVideo(video: HTMLVideoElement): boolean {
 
 export function getErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
-  if (/onnx|inferencesession|execution provider|ort\.|ecbsr/i.test(message)) {
-    return `ECBSR 模型初始化失败：${message}`;
+  if (/onnx|inferencesession|execution provider|ort\./i.test(message)) {
+    return `ONNX 模型初始化失败：${message}`;
   }
   if (/swiftshader|fallback|hardware webgpu adapter/i.test(message)) {
     return "WebGPU 当前落到了软件适配器，已停止增强";
@@ -64,19 +64,21 @@ export function getErrorMessage(error: unknown): string {
 }
 
 export function getEngine(settings: Settings): EngineType {
-  return settings.engine;
+  if (settings.engine === "webgpu") return "webgpu";
+  if (settings.engine === "onnx") return "onnx";
+  return "tiny-cnn";
 }
 
 export function getOnnxModelId(settings: Settings): string {
-  if (settings.engine !== "ecbsr") {
+  if (settings.engine !== "onnx") {
     return DEFAULT_ONNX_MODEL_ID;
   }
   return getOnnxModelDefinition(settings.modelId).id;
 }
 
 export function getPipelineKey(settings: Settings): string {
-  if (settings.engine === "ecbsr") {
-    return `ecbsr:${getOnnxModelId(settings)}`;
+  if (settings.engine === "onnx") {
+    return `onnx:${getOnnxModelId(settings)}`;
   }
   return getEngine(settings);
 }

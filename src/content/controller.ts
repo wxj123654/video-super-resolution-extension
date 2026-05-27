@@ -348,9 +348,9 @@ export class Controller {
       hasVideo: Boolean(this.video),
       engine: this.settings.engine,
       failedEngine: this.failedEngine,
-      modelId: this.settings.engine === "ecbsr" ? this.settings.modelId : undefined,
+      modelId: this.settings.engine === "onnx" ? this.settings.modelId : undefined,
       modelLabel:
-        this.settings.engine === "ecbsr"
+        this.settings.engine === "onnx"
           ? getOnnxModelDefinition(this.settings.modelId).label
           : undefined,
       displayMode: this.getDisplayMode(),

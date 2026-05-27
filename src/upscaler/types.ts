@@ -1,4 +1,4 @@
-export type EngineType = "webgpu" | "tiny-cnn" | "ecbsr";
+export type EngineType = "webgpu" | "tiny-cnn" | "onnx";
 export type OnnxInputLayout = "NCHW";
 export type OnnxInputColorSpace = "y-only" | "rgb";
 export type OnnxCompositorKind = "luma_replace" | "rgb_replace" | "rgb_overlay";
@@ -6,6 +6,9 @@ export type OnnxExecutionProvider = "webgpu";
 export type OnnxInputPacking = "luma_f32_planar" | "rgb_f32_planar";
 export type OnnxOutputPacking = "luma_f32_planar" | "rgb_f32_planar";
 export type OnnxCompositeMode = "luma_replace" | "rgb_replace" | "rgb_overlay";
+export type OnnxModelCategory = "lightweight" | "balanced" | "quality";
+export type OnnxPreprocessing = "range_01" | "range_neg1_1";
+export type OnnxQuantization = "fp32" | "fp16";
 
 export interface OnnxSizePolicy {
   widthAlign: number;
@@ -13,6 +16,13 @@ export interface OnnxSizePolicy {
   minInputWidth?: number;
   minInputHeight?: number;
   fixedScale?: number;
+}
+
+export interface OnnxModelSource {
+  type: "bundled" | "download";
+  downloadUrl?: string;
+  fileSize?: number;
+  sha256?: string;
 }
 
 export interface OnnxModelDefinition {
@@ -31,6 +41,12 @@ export interface OnnxModelDefinition {
   compositeMode: OnnxCompositeMode;
   compositor: OnnxCompositorKind;
   description?: string;
+  source?: OnnxModelSource;
+  quantization?: OnnxQuantization;
+  category?: OnnxModelCategory;
+  preprocessing?: OnnxPreprocessing;
+  tileSize?: number;
+  precisionAlternatives?: { fp16?: string; fp32?: string };
 }
 
 export interface Settings {
@@ -74,11 +90,18 @@ export interface ControllerState {
   } | null;
 }
 
-export type VsrMessageType = "VSR_PING" | "VSR_UPDATE" | "VSR_RESCAN";
+export type VsrMessageType = "VSR_PING" | "VSR_UPDATE" | "VSR_RESCAN" | "VSR_MODEL_STATUS";
 
 export interface VsrMessage {
   type: VsrMessageType;
   settings?: Settings;
+  modelStatus?: {
+    modelId: string;
+    state: "cached" | "downloading" | "ready" | "error";
+    progress?: number;
+    total?: number;
+    error?: string;
+  };
 }
 
 export interface SiteProfile {
