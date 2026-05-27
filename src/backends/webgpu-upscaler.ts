@@ -1,5 +1,9 @@
 import type { Settings, UpscalerImpl } from "../upscaler/types";
-import { requestWebGpuAdapter } from "../upscaler/webgpu-utilities";
+import {
+  requestWebGpuAdapter,
+  configureWebGpuContext,
+  type WebGpuContextState,
+} from "../upscaler/webgpu-utilities";
 import { modeToInt } from "../upscaler/webgl-utilities";
 import webGpuShader from "../shaders/webgpu.wgsl?raw";
 
@@ -13,15 +17,22 @@ export class WebGpuUpscaler implements UpscalerImpl {
   private uniformBuffer: GPUBuffer | null = null;
   private bindGroupLayout: GPUBindGroupLayout | null = null;
   private format: GPUTextureFormat | null = null;
-  private configured = false;
   private failed = false;
   private initError: Error | null = null;
-  private lastCanvasWidth = 0;
-  private lastCanvasHeight = 0;
   private initPromise: Promise<void>;
+  private contextState: WebGpuContextState = {
+    context: null as unknown as GPUCanvasContext,
+    device: null as unknown as GPUDevice,
+    format: null as unknown as GPUTextureFormat,
+    canvas: null as unknown as HTMLCanvasElement,
+    configured: false,
+    lastCanvasWidth: 0,
+    lastCanvasHeight: 0,
+  };
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
+    this.contextState.canvas = canvas;
     this.initPromise = this.init().catch((error: Error) => {
       this.failed = true;
       this.initError = error;
@@ -37,6 +48,9 @@ export class WebGpuUpscaler implements UpscalerImpl {
     }
 
     this.format = navigator.gpu.getPreferredCanvasFormat();
+    this.contextState.context = this.context;
+    this.contextState.device = this.device;
+    this.contextState.format = this.format;
     this.sampler = this.device.createSampler({
       magFilter: "linear",
       minFilter: "linear",
@@ -128,24 +142,7 @@ export class WebGpuUpscaler implements UpscalerImpl {
 
   private configureContext(): void {
     if (!this.context || !this.device) return;
-    const width = Math.max(1, this.canvas.width || 1);
-    const height = Math.max(1, this.canvas.height || 1);
-    if (
-      this.configured &&
-      width === this.lastCanvasWidth &&
-      height === this.lastCanvasHeight
-    ) {
-      return;
-    }
-
-    this.context.configure({
-      device: this.device,
-      format: this.format!,
-      alphaMode: "opaque",
-    });
-    this.lastCanvasWidth = width;
-    this.lastCanvasHeight = height;
-    this.configured = true;
+    configureWebGpuContext(this.contextState);
   }
 
   destroy(): void {
@@ -156,8 +153,9 @@ export class WebGpuUpscaler implements UpscalerImpl {
     this.sampler = null;
     this.bindGroupLayout = null;
     this.context = null;
+    this.device?.destroy();
     this.device = null;
     this.adapter = null;
-    this.configured = false;
+    this.contextState.configured = false;
   }
 }

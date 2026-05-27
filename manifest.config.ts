@@ -17,7 +17,6 @@ export default defineManifest({
   },
   options_page: "options.html",
   permissions: ["activeTab", "scripting", "storage"],
-  host_permissions: ["<all_urls>"],
   web_accessible_resources: [
     {
       resources: [
