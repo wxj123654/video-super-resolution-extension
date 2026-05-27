@@ -16,6 +16,6 @@
       "@src/*": ["./src/*"]
     }
   },
-  "include": ["src/**/*", "popup.ts", "manifest.config.ts", "vite.config.ts"],
+  "include": ["src/**/*", "tests/**/*", "manifest.config.ts", "vite.config.ts"],
   "exclude": ["node_modules", "dist", "public"]
 }

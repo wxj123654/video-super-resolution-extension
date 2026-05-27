@@ -1,0 +1,14 @@
+import type { Settings } from "../../upscaler/types";
+import { DEFAULT_SETTINGS } from "./defaults";
+import { normalizeSettings } from "./settings";
+
+export async function loadSettings(): Promise<Settings> {
+  const stored = await chrome.storage.sync.get(DEFAULT_SETTINGS);
+  return normalizeSettings(stored);
+}
+
+export async function saveSettings(settings: Partial<Settings>): Promise<Settings> {
+  const normalized = normalizeSettings(settings);
+  await chrome.storage.sync.set(normalized);
+  return normalized;
+}

@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import { crx } from "@crxjs/vite-plugin";
+import react from "@vitejs/plugin-react";
 import manifest from "./manifest.config";
 import { resolve } from "path";
 
@@ -31,6 +32,11 @@ export default defineConfig(({ mode }) => {
     define: {
       __VSR_DEBUG__: JSON.stringify(isDebugBuild),
     },
-    plugins: [crx({ manifest })],
+    plugins: [react(), crx({ manifest })],
+    test: {
+      environment: "jsdom",
+      globals: true,
+      setupFiles: "./tests/setup.ts",
+    },
   };
 });
