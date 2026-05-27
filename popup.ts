@@ -4,6 +4,11 @@ import type {
   ControllerState,
   VsrMessage,
 } from "./src/upscaler/types";
+import {
+  CONTENT_SCRIPT_FILE,
+  CONTENT_STYLE_FILE,
+  ORT_RUNTIME_FILES,
+} from "./src/shared/extension/injection";
 
 const ONNX_MODEL_OPTIONS = [
   { id: "ecbsr_x2_m4c8_y", label: "ECBSR Y-only x2" },
@@ -180,7 +185,7 @@ async function ensureContentScript(): Promise<void> {
       error,
     });
 
-    const cssFiles = ["styles/overlay.css"];
+    const cssFiles = [CONTENT_STYLE_FILE];
     logger.debug("Injecting CSS", {
       tabId: activeTabId,
       files: cssFiles,
@@ -190,10 +195,7 @@ async function ensureContentScript(): Promise<void> {
       files: cssFiles,
     });
 
-    const scriptFiles = [
-      "vendor/onnxruntime/ort.webgpu.min.js",
-      "content.js",
-    ];
+    const scriptFiles = [...ORT_RUNTIME_FILES, CONTENT_SCRIPT_FILE];
     logger.debug("Executing content script", {
       tabId: activeTabId,
       files: scriptFiles,

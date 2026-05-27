@@ -1,0 +1,21 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 46 33% 97%;
+  --foreground: 204 22% 15%;
+  --border: 35 20% 82%;
+  --muted: 210 16% 92%;
+  --accent: 164 56% 33%;
+  color-scheme: light;
+  font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 240px;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}

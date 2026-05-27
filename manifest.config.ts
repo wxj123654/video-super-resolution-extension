@@ -11,6 +11,7 @@ export default defineManifest({
     default_title: "Video GPU Super Resolution",
     default_popup: "popup.html",
   },
+  options_page: "options.html",
   permissions: ["activeTab", "scripting", "storage"],
   host_permissions: ["<all_urls>"],
   web_accessible_resources: [
@@ -23,7 +24,6 @@ export default defineManifest({
         "vendor/onnxruntime/ort-wasm-simd-threaded.mjs",
         "vendor/onnxruntime/ort-wasm-simd-threaded.jsep.mjs",
         "styles/overlay.css",
-        "content.js",
       ],
       matches: ["<all_urls>"],
     },
