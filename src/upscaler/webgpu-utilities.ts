@@ -40,7 +40,7 @@ export async function requestWebGpuAdapter(
           [
             "compatibility",
             {
-              powerPreference: "high-performance",
+              powerPreference: "low-power",
               featureLevel: "compatibility",
               forceFallbackAdapter: false,
             } as GPURequestAdapterOptions,
@@ -94,4 +94,36 @@ export function isSoftwareAdapter(
   if ((adapter as unknown as { isFallbackAdapter?: boolean }).isFallbackAdapter) return true;
   const text = `${info.vendor} ${info.architecture} ${info.device} ${info.description}`.toLowerCase();
   return text.includes("swiftshader") || text.includes("software");
+}
+
+export interface WebGpuContextState {
+  context: GPUCanvasContext;
+  device: GPUDevice;
+  format: GPUTextureFormat;
+  canvas: HTMLCanvasElement;
+  configured: boolean;
+  lastCanvasWidth: number;
+  lastCanvasHeight: number;
+}
+
+export function configureWebGpuContext(state: WebGpuContextState): boolean {
+  const width = Math.max(1, state.canvas.width || 1);
+  const height = Math.max(1, state.canvas.height || 1);
+  if (
+    state.configured &&
+    width === state.lastCanvasWidth &&
+    height === state.lastCanvasHeight
+  ) {
+    return false;
+  }
+
+  state.context.configure({
+    device: state.device,
+    format: state.format,
+    alphaMode: "opaque",
+  });
+  state.lastCanvasWidth = width;
+  state.lastCanvasHeight = height;
+  state.configured = true;
+  return true;
 }

@@ -1,9 +1,7 @@
 import type { Settings, ControllerState, SiteProfile } from "../upscaler/types";
 import { Upscaler } from "../upscaler/index";
-import {
-  DEFAULT_ONNX_MODEL_ID,
-  getOnnxModelDefinition,
-} from "../backends/onnx-models";
+import { getOnnxModelDefinition } from "../backends/onnx-models";
+import { DEFAULT_SETTINGS } from "../shared/extension/defaults";
 import { detectSiteProfile } from "./site-profiles";
 import {
   collectVideos,
@@ -15,18 +13,6 @@ import {
   getPipelineKey,
 } from "./video-utils";
 import { createLogger, toLogDetails } from "./debug";
-
-const DEFAULT_SETTINGS: Settings = {
-  enabled: false,
-  scale: 1.5,
-  sharpness: 0.65,
-  mode: "balanced",
-  overlayOpacity: 0.8,
-  displayMode: "overlay",
-  engine: "tiny-cnn",
-  modelId: DEFAULT_ONNX_MODEL_ID,
-  targetFps: "auto",
-};
 
 export { DEFAULT_SETTINGS };
 
@@ -85,7 +71,25 @@ export class Controller {
     this.mutationObserver.observe(document.documentElement, {
       childList: true,
       subtree: true,
+      characterData: false,
     });
+  }
+
+  destroy(): void {
+    cancelAnimationFrame(this.frame);
+    this.frame = 0;
+    window.removeEventListener("scroll", this.handleScroll, true);
+    window.removeEventListener("resize", this.handleResize);
+    document.removeEventListener("fullscreenchange", this.handleResize);
+    document.removeEventListener("loadedmetadata", this.handleMediaChange, true);
+    document.removeEventListener("loadeddata", this.handleMediaChange, true);
+    document.removeEventListener("playing", this.handleMediaChange, true);
+    this.resizeObserver.disconnect();
+    this.mutationObserver.disconnect();
+    this.upscaler?.destroy();
+    this.upscaler = null;
+    this.canvas.remove();
+    delete document.documentElement.dataset["dataVgsrInjected"];
   }
 
   update(settings: Partial<Settings>): ControllerState {
@@ -246,7 +250,8 @@ export class Controller {
 
     try {
       this.syncCanvasBounds();
-      const rendered = this.upscaler!.render(this.video, this.settings);
+      if (!this.upscaler) return;
+      const rendered = this.upscaler.render(this.video, this.settings);
       if (rendered && !this.canvas.hidden) {
         this.setSourceHidden(true);
       } else {
@@ -274,16 +279,17 @@ export class Controller {
   }
 
   private shouldRenderFrame(): boolean {
+    if (!this.video) return false;
     const targetFps = this.settings.targetFps;
 
     if (targetFps === "auto") {
       if (
-        this.video!.currentTime === this.lastVideoTime &&
+        this.video.currentTime === this.lastVideoTime &&
         this.lastVideoTime >= 0
       ) {
         return false;
       }
-      this.lastVideoTime = this.video!.currentTime;
+      this.lastVideoTime = this.video.currentTime;
       return true;
     }
 
@@ -428,23 +434,23 @@ export class Controller {
 
     const fullscreen = document.fullscreenElement;
     if (fullscreen?.contains(this.video)) {
-      const videoLayer = this.video.closest(
-        this.profile.overlayRootSelector!,
-      ) as HTMLElement | null;
-      return {
-        root:
-          videoLayer && fullscreen.contains(videoLayer)
-            ? (videoLayer as HTMLElement)
-            : (fullscreen as HTMLElement),
-        anchor: null,
-      };
+      const videoLayer = this.profile.overlayRootSelector
+        ? this.video.closest(this.profile.overlayRootSelector)
+        : null;
+      const root =
+        videoLayer instanceof HTMLElement && fullscreen.contains(videoLayer)
+          ? videoLayer
+          : fullscreen instanceof HTMLElement
+            ? fullscreen
+            : document.documentElement;
+      return { root, anchor: null };
     }
 
+    const overlayRoot = this.profile.overlayRootSelector
+      ? this.video.closest(this.profile.overlayRootSelector)
+      : null;
     return {
-      root:
-        (this.profile.overlayRootSelector
-          ? this.video.closest(this.profile.overlayRootSelector) as HTMLElement | null
-          : null) ?? document.documentElement,
+      root: overlayRoot instanceof HTMLElement ? overlayRoot : document.documentElement,
       anchor: null,
     };
   }
@@ -514,7 +520,7 @@ export class Controller {
     this.video?.classList.toggle("vgsr-hidden-source", hidden);
   }
 
-  private getDisplayMode(): string {
+  private getDisplayMode(): Settings["displayMode"] {
     if (this.settings.displayMode === "replace") return "replace";
     return "overlay";
   }

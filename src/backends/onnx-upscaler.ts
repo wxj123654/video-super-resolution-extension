@@ -5,7 +5,11 @@ import type {
   OnnxModelDefinition,
   OnnxInputPacking,
 } from "../upscaler/types";
-import { requestOnnxWebGpuAdapter } from "./onnx-webgpu-utilities";
+import {
+  requestWebGpuAdapter,
+  configureWebGpuContext,
+  type WebGpuContextState,
+} from "../upscaler/webgpu-utilities";
 import { getOnnxModelDefinition } from "./onnx-models";
 import lumaShaderCode from "../shaders/onnx-luma.wgsl?raw";
 import compositeShaderCode from "../shaders/onnx-composite.wgsl?raw";
@@ -56,15 +60,36 @@ const ORT_STATE = {
   sessionCount: 0,
 };
 
+export async function cleanupOrtState(): Promise<void> {
+  const sessions = await Promise.allSettled(
+    [...ORT_STATE.sessionPromises.values()],
+  );
+  for (const result of sessions) {
+    if (result.status === "fulfilled") {
+      await result.value.session.release();
+    }
+  }
+  ORT_STATE.sessionPromises.clear();
+  ORT_STATE.adapter = null;
+  ORT_STATE.configured = false;
+  ORT_STATE.sessionCount = 0;
+}
+
 const ECBSR_DEBUG = false;
 const ECBSR_MAX_INPUT_PIXELS = 1920 * 1080;
 const GPU_PACK_WORKGROUP_SIZE = 8;
-const ORT_JSEP_MJS_URL = chrome.runtime.getURL(
-  "vendor/onnxruntime/ort-wasm-simd-threaded.jsep.mjs",
-);
-const ORT_JSEP_WASM_URL = chrome.runtime.getURL(
-  "vendor/onnxruntime/ort-wasm-simd-threaded.jsep.wasm",
-);
+
+let _ortAssetUrls: { mjs: string; wasm: string } | null = null;
+
+function getOrtAssetUrls() {
+  if (!_ortAssetUrls) {
+    _ortAssetUrls = {
+      mjs: chrome.runtime.getURL("vendor/onnxruntime/ort-wasm-simd-threaded.mjs"),
+      wasm: chrome.runtime.getURL("vendor/onnxruntime/ort-wasm-simd-threaded.wasm"),
+    };
+  }
+  return _ortAssetUrls;
+}
 
 function extractLumaCpu(rgba: Uint8ClampedArray): Float32Array {
   const pixels = rgba.length >> 2;
@@ -73,8 +98,8 @@ function extractLumaCpu(rgba: Uint8ClampedArray): Float32Array {
   for (let i = 0; i < pixels; i++) {
     const p = src[i];
     luma[i] =
-      (76 * (p & 0xff) + 150 * ((p >> 8) & 0xff) + 29 * ((p >> 16) & 0xff)) /
-      25500;
+      (0.299 * (p & 0xff) + 0.587 * ((p >> 8) & 0xff) + 0.114 * ((p >> 16) & 0xff)) /
+      255;
   }
   return luma;
 }
@@ -105,20 +130,30 @@ class WebGpuLumaCompositor {
   private lumaWidth = 0;
   private lumaHeight = 0;
   private sampler: GPUSampler | null = null;
-  private configured = false;
-  private lastCanvasWidth = 0;
-  private lastCanvasHeight = 0;
+  private contextState: WebGpuContextState = {
+    context: null as unknown as GPUCanvasContext,
+    device: null as unknown as GPUDevice,
+    format: null as unknown as GPUTextureFormat,
+    canvas: null as unknown as HTMLCanvasElement,
+    configured: false,
+    lastCanvasWidth: 0,
+    lastCanvasHeight: 0,
+  };
   ready = false;
 
   constructor(canvas: HTMLCanvasElement, device: GPUDevice) {
     this.canvas = canvas;
     this.device = device;
+    this.contextState.canvas = canvas;
+    this.contextState.device = device;
   }
 
   async init(): Promise<void> {
     this.context = this.canvas.getContext("webgpu");
     if (!this.context) throw new Error("WebGPU canvas context unavailable");
     this.format = navigator.gpu.getPreferredCanvasFormat();
+    this.contextState.context = this.context;
+    this.contextState.format = this.format;
     this.configureContext();
 
     const module = this.device.createShaderModule({
@@ -232,28 +267,12 @@ class WebGpuLumaCompositor {
       this.lumaTexture = null;
     }
     this.ready = false;
+    this.contextState.configured = false;
   }
 
   private configureContext(): void {
     if (!this.context || !this.format) return;
-    const width = Math.max(1, this.canvas.width || 1);
-    const height = Math.max(1, this.canvas.height || 1);
-    if (
-      this.configured &&
-      width === this.lastCanvasWidth &&
-      height === this.lastCanvasHeight
-    ) {
-      return;
-    }
-
-    this.context.configure({
-      device: this.device,
-      format: this.format,
-      alphaMode: "opaque",
-    });
-    this.lastCanvasWidth = width;
-    this.lastCanvasHeight = height;
-    this.configured = true;
+    configureWebGpuContext(this.contextState);
   }
 
   private ensureLumaTexture(width: number, height: number): void {
@@ -566,13 +585,21 @@ class WebGpuRgbCompositor {
   private outputHeight = 0;
   private hasFrame = false;
   private ready = false;
-  private configured = false;
-  private lastCanvasWidth = 0;
-  private lastCanvasHeight = 0;
+  private contextState: WebGpuContextState = {
+    context: null as unknown as GPUCanvasContext,
+    device: null as unknown as GPUDevice,
+    format: null as unknown as GPUTextureFormat,
+    canvas: null as unknown as HTMLCanvasElement,
+    configured: false,
+    lastCanvasWidth: 0,
+    lastCanvasHeight: 0,
+  };
 
   constructor(canvas: HTMLCanvasElement, device: GPUDevice) {
     this.canvas = canvas;
     this.device = device;
+    this.contextState.canvas = canvas;
+    this.contextState.device = device;
   }
 
   async init(): Promise<void> {
@@ -581,6 +608,8 @@ class WebGpuRgbCompositor {
       throw new Error("WebGPU canvas context unavailable");
     }
     this.format = navigator.gpu.getPreferredCanvasFormat();
+    this.contextState.context = this.context;
+    this.contextState.format = this.format;
     this.configureContext();
 
     this.paramsBuffer = this.device.createBuffer({
@@ -742,28 +771,12 @@ class WebGpuRgbCompositor {
     }
     this.ready = false;
     this.hasFrame = false;
+    this.contextState.configured = false;
   }
 
   private configureContext(): void {
     if (!this.context || !this.format) return;
-    const width = Math.max(1, this.canvas.width || 1);
-    const height = Math.max(1, this.canvas.height || 1);
-    if (
-      this.configured &&
-      width === this.lastCanvasWidth &&
-      height === this.lastCanvasHeight
-    ) {
-      return;
-    }
-
-    this.context.configure({
-      device: this.device,
-      format: this.format,
-      alphaMode: "opaque",
-    });
-    this.lastCanvasWidth = width;
-    this.lastCanvasHeight = height;
-    this.configured = true;
+    configureWebGpuContext(this.contextState);
   }
 
   private ensureOutputTexture(width: number, height: number): void {
@@ -871,7 +884,7 @@ export class EcbsrOnnxUpscaler implements UpscalerImpl {
       );
     }
 
-    const ortAdapter = await requestOnnxWebGpuAdapter({
+    const ortAdapter = await requestWebGpuAdapter({
       allowSoftware: true,
       preferCompatibility: false,
     });
@@ -891,6 +904,16 @@ export class EcbsrOnnxUpscaler implements UpscalerImpl {
       throw new Error("ONNX Runtime did not expose a WebGPU device");
     }
     this.gpuDevice = sharedDevice as unknown as GPUDevice;
+
+    this.gpuDevice.lost.then((info) => {
+      console.error(
+        `[Video GPU Super Resolution][ONNX][${this.model.id}] GPU device lost:`,
+        info.message,
+      );
+      this.failed = true;
+      this.initError = new Error(`GPU device lost: ${info.message}`);
+      void cleanupOrtState();
+    });
 
     try {
       this.inputPacker = new WebGpuInputPacker(this.gpuDevice);
@@ -1172,18 +1195,31 @@ export class EcbsrOnnxUpscaler implements UpscalerImpl {
     );
     const preEndedAt = performance.now();
 
-    const useGpuOutput = Boolean(
+    let useGpuOutput = Boolean(
       this.gpuOutputEnabled && this.outputTensor && this.outputGpuBuffer,
     );
     this.activeOutputPath = useGpuOutput ? "gpu" : "cpu";
 
     const inferStartedAt = performance.now();
-    const results = useGpuOutput
-      ? await this.session.run(
+    let results: Record<string, OnnxRuntimeWeb.Tensor>;
+    if (useGpuOutput) {
+      try {
+        results = await this.session.run(
           { [this.inputName]: inputTensor },
           { [this.outputName]: this.outputTensor! },
-        )
-      : await this.session.run({ [this.inputName]: inputTensor });
+        );
+      } catch (error) {
+        console.warn(
+          `[Video GPU Super Resolution][ONNX][${this.model.id}] GPU output binding failed, falling back to CPU output:`,
+          (error as Error).message,
+        );
+        useGpuOutput = false;
+        this.activeOutputPath = "cpu";
+        results = await this.session.run({ [this.inputName]: inputTensor });
+      }
+    } else {
+      results = await this.session.run({ [this.inputName]: inputTensor });
+    }
     const inferEndedAt = performance.now();
 
     const postStartedAt = performance.now();
@@ -1390,9 +1426,10 @@ function configureOrtRuntime(ortNs: OrtRuntime, adapter: GPUAdapter): void {
   ortNs.env.logLevel = ECBSR_DEBUG ? "verbose" : "warning";
   ortNs.env.wasm.proxy = false;
   ortNs.env.wasm.numThreads = 1;
+  const urls = getOrtAssetUrls();
   ortNs.env.wasm.wasmPaths = {
-    mjs: ORT_JSEP_MJS_URL,
-    wasm: ORT_JSEP_WASM_URL,
+    mjs: urls.mjs,
+    wasm: urls.wasm,
   };
   ortNs.env.webgpu.adapter = adapter as unknown as GPUAdapter;
   ortNs.env.webgpu.powerPreference = "low-power";
