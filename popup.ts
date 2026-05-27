@@ -7,7 +7,7 @@ import type {
 import {
   CONTENT_SCRIPT_FILE,
   CONTENT_STYLE_FILE,
-  ORT_RUNTIME_FILES,
+  ORT_RUNTIME_SCRIPT_FILES,
 } from "./src/shared/extension/injection";
 
 const ONNX_MODEL_OPTIONS = [
@@ -195,7 +195,7 @@ async function ensureContentScript(): Promise<void> {
       files: cssFiles,
     });
 
-    const scriptFiles = [...ORT_RUNTIME_FILES, CONTENT_SCRIPT_FILE];
+    const scriptFiles = [...ORT_RUNTIME_SCRIPT_FILES, CONTENT_SCRIPT_FILE];
     logger.debug("Executing content script", {
       tabId: activeTabId,
       files: scriptFiles,

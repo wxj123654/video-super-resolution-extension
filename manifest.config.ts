@@ -1,4 +1,8 @@
 import { defineManifest } from "@crxjs/vite-plugin";
+import {
+  CONTENT_STYLE_FILE,
+  ORT_RUNTIME_FILES,
+} from "./src/shared/extension/injection";
 
 export default defineManifest({
   manifest_version: 3,
@@ -18,12 +22,8 @@ export default defineManifest({
     {
       resources: [
         "models/*",
-        "vendor/onnxruntime/ort.webgpu.min.js",
-        "vendor/onnxruntime/ort-wasm-simd-threaded.wasm",
-        "vendor/onnxruntime/ort-wasm-simd-threaded.jsep.wasm",
-        "vendor/onnxruntime/ort-wasm-simd-threaded.mjs",
-        "vendor/onnxruntime/ort-wasm-simd-threaded.jsep.mjs",
-        "styles/overlay.css",
+        ...ORT_RUNTIME_FILES,
+        CONTENT_STYLE_FILE,
       ],
       matches: ["<all_urls>"],
     },
