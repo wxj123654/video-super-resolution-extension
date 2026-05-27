@@ -7,8 +7,11 @@ export async function loadSettings(): Promise<Settings> {
   return normalizeSettings(stored);
 }
 
-export async function saveSettings(settings: Partial<Settings>): Promise<Settings> {
-  const normalized = normalizeSettings(settings);
+export async function saveSettings(patch: Partial<Settings>): Promise<Settings> {
+  const normalized = normalizeSettings({
+    ...(await loadSettings()),
+    ...patch,
+  });
   await chrome.storage.sync.set(normalized);
   return normalized;
 }
