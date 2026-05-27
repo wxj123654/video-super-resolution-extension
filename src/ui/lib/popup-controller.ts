@@ -4,7 +4,6 @@ import { createMessage } from "@src/shared/extension/messages";
 import {
   DEFAULT_SETTINGS,
   normalizeSettings,
-  ONNX_MODEL_OPTIONS,
 } from "@src/shared/extension/settings";
 import { loadSettings, saveSettings } from "@src/shared/extension/storage";
 
@@ -65,10 +64,11 @@ export async function bootstrapPopup(): Promise<PopupSession> {
       tab.id,
       createMessage("VSR_UPDATE", settings),
     )) as ControllerState;
+    const syncedSettings = await syncSettingsFromState(settings, state);
 
     return {
       tabId: tab.id,
-      model: mapPopupModel(settings, state, "Connected"),
+      model: mapPopupModel(syncedSettings, state, "Connected"),
     };
   } catch {
     return {
@@ -108,10 +108,11 @@ export async function updatePopupSettings(
       tabId,
       createMessage("VSR_UPDATE", settings),
     )) as ControllerState;
+    const syncedSettings = await syncSettingsFromState(settings, state);
 
     return {
       tabId,
-      model: mapPopupModel(settings, state, "Connected"),
+      model: mapPopupModel(syncedSettings, state, "Connected"),
     };
   } catch {
     return {
@@ -148,10 +149,11 @@ export async function rescanPopup(tabId: number | null): Promise<PopupSession> {
       tabId,
       createMessage("VSR_RESCAN"),
     )) as ControllerState;
+    const syncedSettings = await syncSettingsFromState(settings, state);
 
     return {
       tabId,
-      model: mapPopupModel(settings, state, "Connected"),
+      model: mapPopupModel(syncedSettings, state, "Connected"),
     };
   } catch {
     return {
@@ -171,13 +173,6 @@ export async function launchOptionsPage(): Promise<void> {
   await openExtensionOptions();
 }
 
-export function getModelLabel(modelId: string): string {
-  return (
-    ONNX_MODEL_OPTIONS.find((option) => option.id === modelId)?.label ??
-    ONNX_MODEL_OPTIONS[0].label
-  );
-}
-
 function mapPopupModel(
   settings: Settings,
   state: ControllerState | null | undefined,
@@ -192,6 +187,34 @@ function mapPopupModel(
       (state?.engine as Settings["engine"] | undefined) ?? settings.engine,
     ),
   };
+}
+
+async function syncSettingsFromState(
+  settings: Settings,
+  state: ControllerState | null | undefined,
+): Promise<Settings> {
+  const nextSettings = normalizeSettings({
+    ...settings,
+    engine: state?.engine ?? settings.engine,
+    modelId: state?.modelId ?? settings.modelId,
+    displayMode:
+      (state?.displayMode as Settings["displayMode"] | undefined) ??
+      settings.displayMode,
+  });
+
+  if (
+    nextSettings.engine === settings.engine &&
+    nextSettings.modelId === settings.modelId &&
+    nextSettings.displayMode === settings.displayMode
+  ) {
+    return settings;
+  }
+
+  return saveSettings({
+    engine: nextSettings.engine,
+    modelId: nextSettings.modelId,
+    displayMode: nextSettings.displayMode,
+  });
 }
 
 function getEngineLabel(engine: Settings["engine"]): string {

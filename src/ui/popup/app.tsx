@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 
+import { ONNX_MODEL_OPTIONS } from "@src/shared/extension/settings";
 import { Badge } from "@src/ui/components/ui/badge";
 import { Button } from "@src/ui/components/ui/button";
 import {
@@ -14,7 +15,6 @@ import { Slider } from "@src/ui/components/ui/slider";
 import { Switch } from "@src/ui/components/ui/switch";
 import {
   bootstrapPopup,
-  getModelLabel,
   INITIAL_POPUP_MODEL,
   launchOptionsPage,
   type PopupModel,
@@ -94,7 +94,19 @@ export function PopupApp({
 
             {settings.engine === "ecbsr" ? (
               <Field label="Model">
-                <div className="inline-note">{getModelLabel(settings.modelId)}</div>
+                <Select
+                  aria-label="Model"
+                  value={settings.modelId}
+                  onChange={(event) =>
+                    onSettingsChange({ modelId: event.currentTarget.value })
+                  }
+                >
+                  {ONNX_MODEL_OPTIONS.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </Select>
               </Field>
             ) : null}
 
