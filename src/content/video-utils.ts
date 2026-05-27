@@ -64,9 +64,7 @@ export function getErrorMessage(error: unknown): string {
 }
 
 export function getEngine(settings: Settings): EngineType {
-  if (settings.engine === "webgpu") return "webgpu";
-  if (settings.engine === "ecbsr") return "ecbsr";
-  return "tiny-cnn";
+  return settings.engine;
 }
 
 export function getOnnxModelId(settings: Settings): string {

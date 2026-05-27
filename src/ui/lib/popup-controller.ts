@@ -70,7 +70,8 @@ export async function bootstrapPopup(): Promise<PopupSession> {
       tabId: tab.id,
       model: mapPopupModel(syncedSettings, state, "Connected"),
     };
-  } catch {
+  } catch (error) {
+    console.error("[VSR] bootstrapPopup failed:", error);
     return {
       tabId: tab.id,
       model: {
@@ -114,7 +115,8 @@ export async function updatePopupSettings(
       tabId,
       model: mapPopupModel(syncedSettings, state, "Connected"),
     };
-  } catch {
+  } catch (error) {
+    console.error("[VSR] updatePopupSettings failed:", error);
     return {
       tabId,
       model: {
@@ -155,7 +157,8 @@ export async function rescanPopup(tabId: number | null): Promise<PopupSession> {
       tabId,
       model: mapPopupModel(syncedSettings, state, "Connected"),
     };
-  } catch {
+  } catch (error) {
+    console.error("[VSR] rescanPopup failed:", error);
     return {
       tabId,
       model: {
