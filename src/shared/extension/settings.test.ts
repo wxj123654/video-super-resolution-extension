@@ -56,13 +56,13 @@ describe("normalizeSettings", () => {
     expect(
       normalizeSettings({
         enabled: true,
-        engine: "ecbsr",
+        engine: "onnx",
         modelId: "rgb_bicubic_x2",
       }),
     ).toMatchObject({
       ...DEFAULT_SETTINGS,
       enabled: true,
-      engine: "ecbsr",
+      engine: "onnx",
       modelId: "rgb_bicubic_x2",
     });
   });
@@ -93,13 +93,13 @@ describe("storage helpers", () => {
 
   it("saveSettings merges patch values with existing settings", async () => {
     storageState.set("enabled", true);
-    storageState.set("engine", "ecbsr");
+    storageState.set("engine", "onnx");
     storageState.set("modelId", "rgb_bicubic_x2");
 
     await expect(saveSettings({ targetFps: "30" })).resolves.toEqual({
       ...DEFAULT_SETTINGS,
       enabled: true,
-      engine: "ecbsr",
+      engine: "onnx",
       modelId: "rgb_bicubic_x2",
       targetFps: "30",
     });
@@ -107,7 +107,7 @@ describe("storage helpers", () => {
     expect(setMock).toHaveBeenCalledWith({
       ...DEFAULT_SETTINGS,
       enabled: true,
-      engine: "ecbsr",
+      engine: "onnx",
       modelId: "rgb_bicubic_x2",
       targetFps: "30",
     });

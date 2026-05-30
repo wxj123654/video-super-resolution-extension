@@ -17,6 +17,7 @@ export default defineManifest({
   },
   options_page: "options.html",
   permissions: ["activeTab", "scripting", "storage"],
+  host_permissions: ["https://huggingface.co/*", "https://cdn-lfs.huggingface.co/*"],
   web_accessible_resources: [
     {
       resources: [

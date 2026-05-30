@@ -1,5 +1,7 @@
 import type { OnnxModelDefinition, OnnxModelCategory } from "../upscaler/types";
 
+const LUMA_WEIGHTS: [number, number, number] = [0.299, 0.587, 0.114];
+
 export const ONNX_MODEL_DEFINITIONS: readonly OnnxModelDefinition[] = [
   {
     id: "ecbsr_x2_m4c8_y",
@@ -7,12 +9,6 @@ export const ONNX_MODEL_DEFINITIONS: readonly OnnxModelDefinition[] = [
     modelPath: "models/ecbsr_x2_m4c8_y.onnx",
     scale: 2,
     inputLayout: "NCHW",
-    inputChannels: 1,
-    outputChannels: 1,
-    inputColorSpace: "y-only",
-    inputPacking: "luma_f32_planar",
-    outputPacking: "luma_f32_planar",
-    compositeMode: "luma_replace",
     sizePolicy: {
       widthAlign: 32,
       heightAlign: 1,
@@ -21,7 +17,23 @@ export const ONNX_MODEL_DEFINITIONS: readonly OnnxModelDefinition[] = [
       fixedScale: 2,
     },
     executionProvider: "webgpu",
-    compositor: "luma_replace",
+    input: {
+      channels: 1,
+      colorWeights: LUMA_WEIGHTS,
+      normalization: { scale: 1.0, bias: 0.0 },
+    },
+    output: {
+      channels: 1,
+      denormalization: { scale: 1.0, bias: 0.0 },
+    },
+    composite: {
+      mode: "luma_inject",
+      params: {
+        lumaClampMin: 0.55,
+        lumaClampMax: 1.8,
+        colorDeviation: 0.12,
+      },
+    },
     description: "当前默认的 ECBSR 移动版亮度超分模型。",
     category: "lightweight",
     quantization: "fp32",
@@ -32,12 +44,6 @@ export const ONNX_MODEL_DEFINITIONS: readonly OnnxModelDefinition[] = [
     modelPath: "models/rgb_bicubic_x2.onnx",
     scale: 2,
     inputLayout: "NCHW",
-    inputChannels: 3,
-    outputChannels: 3,
-    inputColorSpace: "rgb",
-    inputPacking: "rgb_f32_planar",
-    outputPacking: "rgb_f32_planar",
-    compositeMode: "rgb_replace",
     sizePolicy: {
       widthAlign: 1,
       heightAlign: 1,
@@ -46,7 +52,17 @@ export const ONNX_MODEL_DEFINITIONS: readonly OnnxModelDefinition[] = [
       fixedScale: 2,
     },
     executionProvider: "webgpu",
-    compositor: "rgb_replace",
+    input: {
+      channels: 3,
+      normalization: { scale: 1.0, bias: 0.0 },
+    },
+    output: {
+      channels: 3,
+      denormalization: { scale: 1.0, bias: 0.0 },
+    },
+    composite: {
+      mode: "replace",
+    },
     description: "用于验证 RGB 三通道 ONNX 通路的 2x 双三次基线模型。",
     category: "lightweight",
     quantization: "fp32",
@@ -57,12 +73,6 @@ export const ONNX_MODEL_DEFINITIONS: readonly OnnxModelDefinition[] = [
     modelPath: "models/realesrgan_x2plus.onnx",
     scale: 2,
     inputLayout: "NCHW",
-    inputChannels: 3,
-    outputChannels: 3,
-    inputColorSpace: "rgb",
-    inputPacking: "rgb_f32_planar",
-    outputPacking: "rgb_f32_planar",
-    compositeMode: "rgb_replace",
     sizePolicy: {
       widthAlign: 1,
       heightAlign: 1,
@@ -71,15 +81,23 @@ export const ONNX_MODEL_DEFINITIONS: readonly OnnxModelDefinition[] = [
       fixedScale: 2,
     },
     executionProvider: "webgpu",
-    compositor: "rgb_replace",
+    input: {
+      channels: 3,
+      normalization: { scale: 2.0, bias: -1.0 },
+    },
+    output: {
+      channels: 3,
+      denormalization: { scale: 0.5, bias: 0.5 },
+    },
+    composite: {
+      mode: "replace",
+    },
     description: "Real-ESRGAN x2plus 高质量超分，适合动漫和真人视频。需要分块推理。",
     category: "quality",
     quantization: "fp32",
     tileSize: 256,
     source: {
-      type: "download",
-      downloadUrl: "https://huggingface.co/tidus2102/Real-ESRGAN/resolve/main/Real-ESRGAN_x2plus.onnx",
-      fileSize: 67_100_000,
+      type: "bundled",
     },
   },
   {
@@ -88,12 +106,6 @@ export const ONNX_MODEL_DEFINITIONS: readonly OnnxModelDefinition[] = [
     modelPath: "models/realesrgan_animevideo_v3_x4.onnx",
     scale: 4,
     inputLayout: "NCHW",
-    inputChannels: 3,
-    outputChannels: 3,
-    inputColorSpace: "rgb",
-    inputPacking: "rgb_f32_planar",
-    outputPacking: "rgb_f32_planar",
-    compositeMode: "rgb_replace",
     sizePolicy: {
       widthAlign: 1,
       heightAlign: 1,
@@ -102,7 +114,17 @@ export const ONNX_MODEL_DEFINITIONS: readonly OnnxModelDefinition[] = [
       fixedScale: 4,
     },
     executionProvider: "webgpu",
-    compositor: "rgb_replace",
+    input: {
+      channels: 3,
+      normalization: { scale: 2.0, bias: -1.0 },
+    },
+    output: {
+      channels: 3,
+      denormalization: { scale: 0.5, bias: 0.5 },
+    },
+    composite: {
+      mode: "replace",
+    },
     description: "RealESR-AnimeVideo v3 专为动漫视频优化的 4x 超分模型，体积小巧。",
     category: "balanced",
     quantization: "fp32",
