@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 
 import { ONNX_MODEL_OPTIONS } from "@src/shared/extension/settings";
 import { Badge } from "@src/ui/components/ui/badge";
@@ -16,11 +16,50 @@ import {
   bootstrapPopup,
   INITIAL_POPUP_MODEL,
   launchOptionsPage,
+  type ModelDownloadStatus,
   type PopupModel,
   rescanPopup,
   updatePopupSettings,
 } from "@src/ui/lib/popup-controller";
 import type { Settings } from "@src/upscaler/types";
+
+const CATEGORY_LABELS: Record<string, string> = {
+  lightweight: "轻量级",
+  balanced: "平衡",
+  quality: "质量优先",
+};
+
+function formatFileSize(bytes: number): string {
+  return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+}
+
+function DownloadProgress({ status }: { status: ModelDownloadStatus }) {
+  if (status.state === "idle") return null;
+
+  if (status.state === "downloading") {
+    const percent = status.total > 0 ? Math.round((status.progress / status.total) * 100) : 0;
+    const loadedMB = (status.progress / 1024 / 1024).toFixed(1);
+    const totalMB = status.total > 0 ? (status.total / 1024 / 1024).toFixed(1) : "?";
+    return (
+      <div className="download-progress">
+        <span className="download-progress__text">
+          正在下载模型... {loadedMB}/{totalMB} MB ({percent}%)
+        </span>
+        <progress className="download-progress__bar" max={100} value={percent} />
+      </div>
+    );
+  }
+
+  if (status.state === "error") {
+    return (
+      <div className="download-progress download-progress--error">
+        <span className="download-progress__text">下载失败: {status.error}</span>
+      </div>
+    );
+  }
+
+  return null;
+}
 
 type PopupAppProps = {
   model: PopupModel;
@@ -87,26 +126,55 @@ export function PopupApp({
               >
                 <option value="webgpu">WebGPU 超分辨率</option>
                 <option value="tiny-cnn">Tiny CNN (WebGL)</option>
-                <option value="ecbsr">ECBSR (ONNX/WebGPU)</option>
+                <option value="onnx">神经网络超分 (ONNX/WebGPU)</option>
               </Select>
             </Field>
 
-            {settings.engine === "ecbsr" ? (
-              <Field label="模型">
-                <Select
-                  aria-label="模型"
-                  value={settings.modelId}
-                  onChange={(event) =>
-                    onSettingsChange({ modelId: event.currentTarget.value })
-                  }
-                >
-                  {ONNX_MODEL_OPTIONS.map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.label}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
+            {settings.engine === "onnx" ? (
+              <>
+                <Field label="模型">
+                  <Select
+                    aria-label="模型"
+                    value={settings.modelId}
+                    onChange={(event) =>
+                      onSettingsChange({ modelId: event.currentTarget.value })
+                    }
+                  >
+                    {(() => {
+                      const groups = new Map<string, typeof ONNX_MODEL_OPTIONS[number][]>();
+                      for (const opt of ONNX_MODEL_OPTIONS) {
+                        const cat = opt.category ?? "lightweight";
+                        if (!groups.has(cat)) groups.set(cat, []);
+                        groups.get(cat)!.push(opt);
+                      }
+                      const elements: React.ReactElement[] = [];
+                      for (const [category, items] of groups) {
+                        const groupElements = items.map((opt) => {
+                          const sizeTag = opt.source?.fileSize
+                            ? ` (${formatFileSize(opt.source.fileSize)})`
+                            : "";
+                          return (
+                            <option key={opt.id} value={opt.id}>
+                              {opt.label}{sizeTag}
+                            </option>
+                          );
+                        });
+                        if (groups.size > 1) {
+                          elements.push(
+                            <optgroup key={category} label={CATEGORY_LABELS[category] ?? category}>
+                              {groupElements}
+                            </optgroup>
+                          );
+                        } else {
+                          elements.push(...groupElements);
+                        }
+                      }
+                      return elements;
+                    })()}
+                  </Select>
+                </Field>
+                <DownloadProgress status={model.modelDownload} />
+              </>
             ) : null}
 
             <Field label="显示模式">
@@ -216,19 +284,38 @@ export function PopupRoot() {
     });
   }, []);
 
+  useEffect(() => {
+    const listener = (message: { type: string; modelStatus?: { state: string; progress?: number; total?: number; error?: string } }) => {
+      if (message.type === "VSR_MODEL_STATUS" && message.modelStatus) {
+        const { state, progress, total, error } = message.modelStatus;
+        if (state === "downloading" && progress !== undefined && total !== undefined) {
+          setModel((prev) => ({ ...prev, modelDownload: { state: "downloading", progress, total } }));
+        } else if (state === "ready") {
+          setModel((prev) => ({ ...prev, modelDownload: { state: "ready" } }));
+        } else if (state === "error") {
+          setModel((prev) => ({ ...prev, modelDownload: { state: "error", error: error ?? "未知错误" } }));
+        }
+      }
+    };
+    chrome.runtime.onMessage.addListener(listener as Parameters<typeof chrome.runtime.onMessage.addListener>[0]);
+    return () => {
+      chrome.runtime.onMessage.removeListener(listener as Parameters<typeof chrome.runtime.onMessage.removeListener>[0]);
+    };
+  }, []);
+
   return (
     <PopupApp
       model={model}
       onSettingsChange={(patch) => {
         void updatePopupSettings(tabId, patch).then((session) => {
           setTabId(session.tabId);
-          setModel(session.model);
+          setModel((prev) => ({ ...session.model, modelDownload: prev.modelDownload }));
         });
       }}
       onRescan={() => {
         void rescanPopup(tabId).then((session) => {
           setTabId(session.tabId);
-          setModel(session.model);
+          setModel((prev) => ({ ...session.model, modelDownload: prev.modelDownload }));
         });
       }}
       onOpenOptions={() => {

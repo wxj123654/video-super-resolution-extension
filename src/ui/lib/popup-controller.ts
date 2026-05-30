@@ -14,12 +14,19 @@ import {
   sendMessageToTab,
 } from "./chrome";
 
+export type ModelDownloadStatus =
+  | { state: "idle" }
+  | { state: "downloading"; progress: number; total: number }
+  | { state: "ready" }
+  | { state: "error"; error: string };
+
 export type PopupModel = {
   statusText: string;
   connectionLabel: string;
   hasVideo: boolean;
   activeEngineLabel: string;
   settings: Settings;
+  modelDownload: ModelDownloadStatus;
 };
 
 export type PopupSession = {
@@ -30,7 +37,7 @@ export type PopupSession = {
 const ENGINE_LABELS: Record<Settings["engine"], string> = {
   webgpu: "WebGPU",
   "tiny-cnn": "Tiny CNN",
-  ecbsr: "ECBSR",
+  onnx: "ONNX",
 };
 
 export const INITIAL_POPUP_MODEL: PopupModel = {
@@ -39,6 +46,7 @@ export const INITIAL_POPUP_MODEL: PopupModel = {
   hasVideo: false,
   activeEngineLabel: ENGINE_LABELS[DEFAULT_SETTINGS.engine],
   settings: DEFAULT_SETTINGS,
+  modelDownload: { state: "idle" },
 };
 
 export async function bootstrapPopup(): Promise<PopupSession> {
@@ -80,6 +88,7 @@ export async function bootstrapPopup(): Promise<PopupSession> {
         connectionLabel: "不可用",
         activeEngineLabel: getEngineLabel(settings.engine),
         statusText: "当前页面无法连接或不支持注入",
+        modelDownload: { state: "idle" },
       },
     };
   }
@@ -100,6 +109,7 @@ export async function updatePopupSettings(
         connectionLabel: "不可用",
         activeEngineLabel: getEngineLabel(settings.engine),
         statusText: "设置已保存，但没有可用标签页",
+        modelDownload: { state: "idle" },
       },
     };
   }
@@ -125,6 +135,7 @@ export async function updatePopupSettings(
         connectionLabel: "不可用",
         activeEngineLabel: getEngineLabel(settings.engine),
         statusText: "设置已保存，但当前页面未响应",
+        modelDownload: { state: "idle" },
       },
     };
   }
@@ -167,6 +178,7 @@ export async function rescanPopup(tabId: number | null): Promise<PopupSession> {
         connectionLabel: "不可用",
         activeEngineLabel: getEngineLabel(settings.engine),
         statusText: "重新扫描失败，当前页面未响应",
+        modelDownload: { state: "idle" },
       },
     };
   }
@@ -189,6 +201,7 @@ function mapPopupModel(
     activeEngineLabel: getEngineLabel(
       (state?.engine as Settings["engine"] | undefined) ?? settings.engine,
     ),
+    modelDownload: { state: "idle" },
   };
 }
 

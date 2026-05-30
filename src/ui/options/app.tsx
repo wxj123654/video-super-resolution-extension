@@ -67,11 +67,11 @@ export function OptionsApp({
                 >
                   <option value="webgpu">WebGPU 超分辨率</option>
                   <option value="tiny-cnn">Tiny CNN (WebGL)</option>
-                  <option value="ecbsr">ECBSR (ONNX/WebGPU)</option>
+                  <option value="onnx">神经网络超分 (ONNX/WebGPU)</option>
                 </Select>
               </Field>
 
-              {settings.engine === "ecbsr" ? (
+              {settings.engine === "onnx" ? (
                 <Field label="模型">
                   <Select
                     aria-label="模型"
@@ -80,11 +80,16 @@ export function OptionsApp({
                       onSettingsChange({ modelId: event.currentTarget.value })
                     }
                   >
-                    {ONNX_MODEL_OPTIONS.map((option) => (
-                      <option key={option.id} value={option.id}>
-                        {option.label}
-                      </option>
-                    ))}
+                    {ONNX_MODEL_OPTIONS.map((option) => {
+                      const sizeTag = option.source?.fileSize
+                        ? ` (${(option.source.fileSize / 1024 / 1024).toFixed(1)}MB)`
+                        : "";
+                      return (
+                        <option key={option.id} value={option.id}>
+                          {option.label}{sizeTag}
+                        </option>
+                      );
+                    })}
                   </Select>
                 </Field>
               ) : null}

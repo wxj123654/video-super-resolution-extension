@@ -11,10 +11,11 @@ describe("PopupApp", () => {
           statusText: "Connected to current tab",
           connectionLabel: "Connected",
           hasVideo: true,
-          activeEngineLabel: "ECBSR",
+          activeEngineLabel: "ONNX",
+          modelDownload: { state: "idle" as const },
           settings: {
             enabled: true,
-            engine: "ecbsr",
+            engine: "onnx",
             displayMode: "overlay",
             scale: 2,
             sharpness: 0.65,
@@ -31,18 +32,18 @@ describe("PopupApp", () => {
     );
 
     expect(
-      screen.getByRole("heading", { name: /video gpu super resolution/i }),
+      screen.getByRole("heading", { name: /视频 gpu 超分辨率/i }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /full settings/i }),
+      screen.getByRole("button", { name: /完整设置/i }),
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole("heading", { name: /diagnostics/i }),
+      screen.queryByRole("heading", { name: /诊断/i }),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /rescan videos/i }),
+      screen.getByRole("button", { name: /重新扫描视频/i }),
     ).toBeInTheDocument();
-    expect(screen.getByLabelText(/engine/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/引擎/i)).toBeInTheDocument();
     expect(screen.getByText("Connected")).toBeInTheDocument();
   });
 
@@ -57,10 +58,11 @@ describe("PopupApp", () => {
           statusText: "Connected to current tab",
           connectionLabel: "Connected",
           hasVideo: true,
-          activeEngineLabel: "ECBSR",
+          activeEngineLabel: "ONNX",
+          modelDownload: { state: "idle" as const },
           settings: {
             enabled: true,
-            engine: "ecbsr",
+            engine: "onnx",
             displayMode: "overlay",
             scale: 2,
             sharpness: 0.65,
@@ -76,25 +78,25 @@ describe("PopupApp", () => {
       />,
     );
 
-    fireEvent.click(screen.getByLabelText(/enable enhancement/i));
+    fireEvent.click(screen.getByLabelText(/enable enhancement/i)); // aria-label kept in English
     expect(onSettingsChange).toHaveBeenCalledWith({ enabled: false });
 
-    fireEvent.change(screen.getByLabelText(/^engine$/i), {
+    fireEvent.change(screen.getByLabelText(/^引擎$/i), {
       target: { value: "webgpu" },
     });
     expect(onSettingsChange).toHaveBeenCalledWith({ engine: "webgpu" });
 
-    fireEvent.change(screen.getByLabelText(/^model$/i), {
+    fireEvent.change(screen.getByLabelText(/^模型$/i), {
       target: { value: "rgb_bicubic_x2" },
     });
     expect(onSettingsChange).toHaveBeenCalledWith({
       modelId: "rgb_bicubic_x2",
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /rescan videos/i }));
+    fireEvent.click(screen.getByRole("button", { name: /重新扫描视频/i }));
     expect(onRescan).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(screen.getByRole("button", { name: /full settings/i }));
+    fireEvent.click(screen.getByRole("button", { name: /完整设置/i }));
     expect(onOpenOptions).toHaveBeenCalledTimes(1);
   });
 });

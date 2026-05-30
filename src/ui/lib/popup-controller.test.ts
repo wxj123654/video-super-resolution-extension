@@ -56,7 +56,7 @@ describe("popup-controller", () => {
     await expect(bootstrapPopup()).resolves.toMatchObject({
       tabId: null,
       model: {
-        connectionLabel: "Unavailable",
+        connectionLabel: "不可用",
       },
     });
     expect(mocks.ensureTabReady).not.toHaveBeenCalled();
@@ -78,7 +78,7 @@ describe("popup-controller", () => {
       })
       .mockResolvedValueOnce({
         enabled: true,
-        engine: "ecbsr",
+        engine: "onnx",
         displayMode: "replace",
         scale: 1.5,
         sharpness: 0.65,
@@ -90,7 +90,7 @@ describe("popup-controller", () => {
     mocks.sendMessageToTab.mockResolvedValue({
       message: "Using page-selected engine",
       hasVideo: true,
-      engine: "ecbsr",
+      engine: "onnx",
       modelId: "rgb_bicubic_x2",
       displayMode: "replace",
     });
@@ -113,16 +113,16 @@ describe("popup-controller", () => {
       },
     });
     expect(mocks.saveSettings).toHaveBeenCalledWith({
-      engine: "ecbsr",
+      engine: "onnx",
       modelId: "rgb_bicubic_x2",
       displayMode: "replace",
     });
     expect(session.model).toMatchObject({
       statusText: "Using page-selected engine",
       hasVideo: true,
-      activeEngineLabel: "ECBSR",
+      activeEngineLabel: "ONNX",
       settings: {
-        engine: "ecbsr",
+        engine: "onnx",
         modelId: "rgb_bicubic_x2",
         displayMode: "replace",
       },
