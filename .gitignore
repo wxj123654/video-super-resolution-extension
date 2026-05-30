@@ -3,4 +3,5 @@ dist
 .**
 !.agents
 !.claude
-docs
+docsRealESRGAN_x2plus.pth
+.claude/
