@@ -228,6 +228,9 @@ export class Controller {
     this.canvas.hidden = true;
     source?.classList.remove("vgsr-hidden-source");
     this.resizeObserver.disconnect();
+    this.upscaler?.destroy();
+    this.upscaler = null;
+    this.upscalerKey = "";
   }
 
   private loop(): void {
