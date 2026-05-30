@@ -1,14 +1,10 @@
 export type EngineType = "webgpu" | "tiny-cnn" | "onnx";
 export type OnnxInputLayout = "NCHW";
-export type OnnxInputColorSpace = "y-only" | "rgb";
-export type OnnxCompositorKind = "luma_replace" | "rgb_replace" | "rgb_overlay";
 export type OnnxExecutionProvider = "webgpu";
-export type OnnxInputPacking = "luma_f32_planar" | "rgb_f32_planar";
-export type OnnxOutputPacking = "luma_f32_planar" | "rgb_f32_planar";
-export type OnnxCompositeMode = "luma_replace" | "rgb_replace" | "rgb_overlay";
 export type OnnxModelCategory = "lightweight" | "balanced" | "quality";
-export type OnnxPreprocessing = "range_01" | "range_neg1_1";
 export type OnnxQuantization = "fp32" | "fp16";
+
+export type OnnxCompositeMode = "replace" | "luma_inject" | "overlay";
 
 export interface OnnxSizePolicy {
   widthAlign: number;
@@ -25,28 +21,46 @@ export interface OnnxModelSource {
   sha256?: string;
 }
 
+export interface OnnxModelInput {
+  channels: 1 | 3;
+  colorWeights?: [number, number, number];
+  normalization: { scale: number; bias: number };
+}
+
+export interface OnnxModelOutput {
+  channels: 1 | 3;
+  denormalization?: { scale: number; bias: number };
+}
+
+export interface OnnxModelComposite {
+  mode: OnnxCompositeMode;
+  params?: {
+    lumaClampMin?: number;
+    lumaClampMax?: number;
+    colorDeviation?: number;
+    blendStrength?: number;
+  };
+}
+
 export interface OnnxModelDefinition {
   id: string;
   label: string;
   modelPath: string;
   scale: number;
   inputLayout: OnnxInputLayout;
-  inputChannels: 1 | 3;
-  outputChannels: 1 | 3;
-  inputColorSpace: OnnxInputColorSpace;
   sizePolicy: OnnxSizePolicy;
   executionProvider: OnnxExecutionProvider;
-  inputPacking: OnnxInputPacking;
-  outputPacking: OnnxOutputPacking;
-  compositeMode: OnnxCompositeMode;
-  compositor: OnnxCompositorKind;
   description?: string;
   source?: OnnxModelSource;
   quantization?: OnnxQuantization;
   category?: OnnxModelCategory;
-  preprocessing?: OnnxPreprocessing;
   tileSize?: number;
+  tilePoolSize?: number;
   precisionAlternatives?: { fp16?: string; fp32?: string };
+
+  input: OnnxModelInput;
+  output: OnnxModelOutput;
+  composite: OnnxModelComposite;
 }
 
 export interface Settings {
