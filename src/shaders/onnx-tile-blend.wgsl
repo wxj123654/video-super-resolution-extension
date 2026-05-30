@@ -1,6 +1,7 @@
 struct BlendParams {
   outWidth: u32,
   outHeight: u32,
+  channels: u32,
   tileCount: u32,
   overlap: u32,
 };
@@ -28,13 +29,11 @@ fn computeMain(@builtin(global_invocation_id) gid: vec3<u32>) {
     return;
   }
 
-  let channels = 3u;
+  let channels = params.channels;
   let outPlaneSize = params.outWidth * params.outHeight;
   let outIdx = gid.y * params.outWidth + gid.x;
 
-  var accumR: f32 = 0.0;
-  var accumG: f32 = 0.0;
-  var accumB: f32 = 0.0;
+  var accum = array<f32, 3>(0.0, 0.0, 0.0);
   var totalWeight: f32 = 0.0;
 
   for (var t = 0u; t < params.tileCount; t++) {
@@ -68,18 +67,18 @@ fn computeMain(@builtin(global_invocation_id) gid: vec3<u32>) {
     let weight = wx * wy;
     let tilePlaneSize = desc.tileW * desc.tileH;
     let tileIdx = u32(localY) * desc.tileW + u32(localX);
-
     let tileBase = t * tilePlaneSize * channels;
-    accumR += tilesBuffer[tileBase + tileIdx] * weight;
-    accumG += tilesBuffer[tileBase + tilePlaneSize + tileIdx] * weight;
-    accumB += tilesBuffer[tileBase + tilePlaneSize * 2u + tileIdx] * weight;
+
+    for (var c = 0u; c < channels; c++) {
+      accum[c] += tilesBuffer[tileBase + c * tilePlaneSize + tileIdx] * weight;
+    }
     totalWeight += weight;
   }
 
   if (totalWeight > 0.0) {
     let inv = 1.0 / totalWeight;
-    dstBuffer[outIdx] = accumR * inv;
-    dstBuffer[outPlaneSize + outIdx] = accumG * inv;
-    dstBuffer[outPlaneSize * 2u + outIdx] = accumB * inv;
+    for (var c = 0u; c < channels; c++) {
+      dstBuffer[c * outPlaneSize + outIdx] = accum[c] * inv;
+    }
   }
 }

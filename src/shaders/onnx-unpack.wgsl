@@ -3,11 +3,12 @@ struct VertexOutput {
   @location(0) uv: vec2f,
 };
 
-struct OutputParams {
+struct UnpackParams {
   width: u32,
   height: u32,
-  _pad0: u32,
-  _pad1: u32,
+  channels: u32,
+  denormScale: f32,
+  denormBias: f32,
 };
 
 @vertex
@@ -30,12 +31,16 @@ fn vertexMain(@builtin(vertex_index) index: u32) -> VertexOutput {
 }
 
 @group(0) @binding(0) var<storage, read> srcBuffer: array<f32>;
-@group(0) @binding(1) var<uniform> params: OutputParams;
+@group(0) @binding(1) var<uniform> params: UnpackParams;
 
 fn readChannel(channel: u32, x: u32, y: u32) -> f32 {
   let planeSize = params.width * params.height;
   let pixelIndex = y * params.width + x;
   return srcBuffer[channel * planeSize + pixelIndex];
+}
+
+fn denorm(v: f32) -> f32 {
+  return v * params.denormScale + params.denormBias;
 }
 
 @fragment
@@ -44,10 +49,17 @@ fn fragmentMain(@builtin(position) position: vec4f) -> @location(0) vec4f {
   let maxY = max(params.height, 1u) - 1u;
   let x = min(u32(position.x), maxX);
   let y = min(u32(position.y), maxY);
-  let color = vec3f(
-    readChannel(0u, x, y),
-    readChannel(1u, x, y),
-    readChannel(2u, x, y)
-  );
-  return vec4f(clamp(color, vec3f(0.0), vec3f(1.0)), 1.0);
+
+  var color: vec3f;
+  if (params.channels == 1u) {
+    let v = clamp(denorm(readChannel(0u, x, y)), 0.0, 1.0);
+    color = vec3f(v);
+  } else {
+    color = vec3f(
+      clamp(denorm(readChannel(0u, x, y)), 0.0, 1.0),
+      clamp(denorm(readChannel(1u, x, y)), 0.0, 1.0),
+      clamp(denorm(readChannel(2u, x, y)), 0.0, 1.0),
+    );
+  }
+  return vec4f(color, 1.0);
 }
