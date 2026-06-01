@@ -61,10 +61,5 @@ export default defineConfig(({ mode }) => {
     },
     define,
     plugins: [react(), crx({ manifest }), iifeContentScript(isDebugBuild, define)],
-    test: {
-      environment: "jsdom",
-      globals: true,
-      setupFiles: "./tests/setup.ts",
-    },
   };
 });
