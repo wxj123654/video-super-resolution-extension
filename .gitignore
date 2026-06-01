@@ -5,3 +5,4 @@ coverage
 !.agents
 !.claude
 docs
+playwright-report

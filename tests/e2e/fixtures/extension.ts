@@ -1,6 +1,8 @@
-import { test as base, chromium, type BrowserContext } from '@playwright/test';
+import { test as base, chromium, type BrowserContext, type Page } from '@playwright/test';
 import path from 'path';
+import { fileURLToPath } from 'url';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const EXTENSION_PATH = path.resolve(__dirname, '../../../dist');
 const LOAD_TIMEOUT = 30000;
 const RETRY_COUNT = 3;
@@ -9,6 +11,7 @@ const RETRY_DELAY = 1000;
 export const test = base.extend<{
   extensionContext: BrowserContext;
   extensionId: string;
+  page: Page;
 }>({
   extensionContext: async ({}, use) => {
     let context: BrowserContext | null = null;
@@ -38,6 +41,12 @@ export const test = base.extend<{
 
     await use(context);
     await context.close();
+  },
+  // Override the default page fixture to use the extension context
+  page: async ({ extensionContext }, use) => {
+    const page = await extensionContext.newPage();
+    await use(page);
+    await page.close();
   },
   extensionId: async ({ extensionContext }, use) => {
     let extensionId = '';

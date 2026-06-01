@@ -31,41 +31,43 @@ if (!claimInjectionLock()) {
       _sender: chrome.runtime.MessageSender,
       sendResponse: (response?: unknown) => void,
     ) => {
-      logger.debug("Received runtime message", {
-        type: message?.type ?? "unknown",
-      });
+      try {
+        logger.debug("Received runtime message", {
+          type: message?.type ?? "unknown",
+        });
 
-      if (message?.type === "VSR_PING") {
-        const state = controller.getState("已连接");
-        logger.debug("Responding to ping", toLogDetails(state));
-        sendResponse(state);
-        return;
+        if (message?.type === "VSR_PING") {
+          const state = controller.getState("已连接");
+          logger.debug("Responding to ping", toLogDetails(state));
+          sendResponse(state);
+          return;
+        }
+
+        if (message?.type === "VSR_UPDATE") {
+          const validated = normalizeSettings(
+            message.settings as Record<string, unknown>,
+          );
+          const state = controller.update(validated);
+          logger.debug("Responding to update", toLogDetails(state));
+          sendResponse(state);
+          return;
+        }
+
+        if (message?.type === "VSR_RESCAN") {
+          const state = controller.rescan();
+          logger.debug("Responding to rescan", toLogDetails(state));
+          sendResponse(state);
+          return;
+        }
+
+        logger.warn("Received unsupported runtime message", {
+          message: toLogDetails(message),
+        });
+      } catch (error) {
+        logger.error("Message handler error", { type: message?.type, error });
+        sendResponse({ ok: false, message: `处理消息失败: ${error instanceof Error ? error.message : String(error)}` });
       }
-
-      if (message?.type === "VSR_UPDATE") {
-        const validated = normalizeSettings(
-          message.settings as Record<string, unknown>,
-        );
-        const state = controller.update(validated);
-        logger.debug("Responding to update", toLogDetails(state));
-        sendResponse(state);
-        return;
-      }
-
-      if (message?.type === "VSR_RESCAN") {
-        const state = controller.rescan();
-        logger.debug("Responding to rescan", toLogDetails(state));
-        sendResponse(state);
-        return;
-      }
-
-      logger.warn("Received unsupported runtime message", {
-        message: toLogDetails(message),
-      });
-    } catch (error) {
-      logger.error("Message handler error", { type: message?.type, error });
-      sendResponse({ ok: false, message: `处理消息失败: ${error instanceof Error ? error.message : String(error)}` });
-    }
-  },
-);
+    },
+  );
+}
 
