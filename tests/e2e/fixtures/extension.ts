@@ -1,4 +1,10 @@
 import { test as base, chromium, type BrowserContext } from '@playwright/test';
+import path from 'path';
+
+const EXTENSION_PATH = path.resolve(__dirname, '../../../dist');
+const LOAD_TIMEOUT = 30000;
+const RETRY_COUNT = 3;
+const RETRY_DELAY = 1000;
 
 export const test = base.extend<{
   extensionContext: BrowserContext;
@@ -6,49 +12,59 @@ export const test = base.extend<{
 }>({
   extensionContext: async ({}, use) => {
     let context: BrowserContext | null = null;
-    let retries = 3;
+    let retries = RETRY_COUNT;
 
     while (retries > 0) {
       try {
         context = await chromium.launchPersistentContext('', {
           headless: false,
           args: [
-            `--disable-extensions-except=./dist`,
-            `--load-extension=./dist`,
+            `--disable-extensions-except=${EXTENSION_PATH}`,
+            `--load-extension=${EXTENSION_PATH}`,
           ],
-          timeout: 30000,
+          timeout: LOAD_TIMEOUT,
         });
         break;
       } catch (error) {
         retries--;
         if (retries === 0) throw error;
-        await new Promise(r => setTimeout(r, 1000));
+        await new Promise(r => setTimeout(r, RETRY_DELAY));
       }
     }
 
-    await use(context!);
-    await context!.close();
+    if (!context) {
+      throw new Error('Failed to launch extension context after retries');
+    }
+
+    await use(context);
+    await context.close();
   },
   extensionId: async ({ extensionContext }, use) => {
     let extensionId = '';
 
-    // 等待扩展加载完成
-    await extensionContext.waitForEvent('serviceworker', { timeout: 10000 });
-
-    // 尝试从 service worker 获取
-    const background = extensionContext.serviceWorkers()[0];
-    if (background) {
-      extensionId = new URL(background.url()).hostname;
+    // Try to get from service worker first (if background script exists)
+    const workers = extensionContext.serviceWorkers();
+    if (workers.length > 0) {
+      extensionId = new URL(workers[0].url()).hostname;
     }
 
-    // 如果还是没有，从页面获取
+    // If no service worker, navigate to chrome://extensions to get the ID
     if (!extensionId) {
-      for (const page of extensionContext.pages()) {
-        if (page.url().includes('chrome-extension://')) {
-          extensionId = new URL(page.url()).hostname;
+      const page = await extensionContext.newPage();
+      await page.goto('chrome://extensions');
+      await page.waitForTimeout(1000);
+
+      // Get extension ID from the extensions page
+      const extensionCards = await page.locator('extensions-item').all();
+      for (const card of extensionCards) {
+        const name = await card.locator('#name').textContent();
+        if (name && name.includes('Video')) {
+          extensionId = await card.getAttribute('id') || '';
           break;
         }
       }
+
+      await page.close();
     }
 
     if (!extensionId) {
