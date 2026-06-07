@@ -156,6 +156,7 @@ export class EcbsrOnnxUpscaler implements UpscalerImpl {
   private activeInputPath: OnnxPathMode = "cpu";
   private activeOutputPath: OnnxPathMode = "cpu";
   private activeCompositePath: OnnxCompositePath = "2d";
+  private lastCompositeIncludedVideo: HTMLVideoElement | null = null;
 
   private stats: EcbsrStats = {
     runs: 0,
@@ -188,6 +189,16 @@ export class EcbsrOnnxUpscaler implements UpscalerImpl {
   private batchedBufferTileSize = 0;
   private batchedBufferChannels = 0;
   private batchedBufferScale = 0;
+
+  // Reusable temp buffer for CPU output upload
+  private cpuOutputTempBuffer: GPUBuffer | null = null;
+  private cpuOutputTempBufferSize = 0;
+
+  // Pre-allocated CPU tiled inference work buffers
+  private cpuTileInputBuffer: Float32Array | null = null;
+  private cpuTileInputCapacity = 0;
+  private cpuTileOutputBuffer: Float32Array | null = null;
+  private cpuTileOutputCapacity = 0;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -316,6 +327,15 @@ export class EcbsrOnnxUpscaler implements UpscalerImpl {
     }
 
     if (this.pipeline) {
+      // For replace mode where composite was already done during handleOutput,
+      // skip redundant composite call on repeated frames
+      if (
+        this.model.composite.mode === "replace" &&
+        this.lastCompositeIncludedVideo &&
+        video.currentTime === this.lastQueuedTime
+      ) {
+        return this.pipeline.render();
+      }
       this.pipeline.composite(video);
       return this.pipeline.render();
     }
@@ -508,7 +528,7 @@ export class EcbsrOnnxUpscaler implements UpscalerImpl {
     const inferEndedAt = performance.now();
 
     const postStartedAt = performance.now();
-    await this.handleOutput(results, useGpuOutput);
+    await this.handleOutput(results, useGpuOutput, video);
     const finishedAt = performance.now();
     this.outputReady = true;
 
@@ -722,9 +742,11 @@ export class EcbsrOnnxUpscaler implements UpscalerImpl {
     const poolSize = this.batchedPoolSize;
     const ortRuntime = getOrtRuntime();
 
-    console.info(
-      `[VSR][tiled-gpu] start tiles=${tiles.length} poolSize=${poolSize} input=${width}x${height} output=${outW}x${outH} tileSize=${tiles[0]?.w} channels=${channels}`,
-    );
+    if (ECBSR_DEBUG) {
+      console.info(
+        `[VSR][tiled-gpu] start tiles=${tiles.length} poolSize=${poolSize} input=${width}x${height} output=${outW}x${outH} tileSize=${tiles[0]?.w} channels=${channels}`,
+      );
+    }
 
     const preStartedAt = performance.now();
     this.pipeline!.packInput(video, this.inputGpuBuffer!, width, height);
@@ -783,7 +805,7 @@ export class EcbsrOnnxUpscaler implements UpscalerImpl {
         );
         const runMs = performance.now() - runT0;
 
-        if (t < 5 || t % 50 === 0) {
+        if (ECBSR_DEBUG && (t < 5 || t % 50 === 0)) {
           console.info(
             `[VSR][tiled-gpu] tile ${t}/${tiles.length} run=${runMs.toFixed(1)}ms pos=(${tile.x},${tile.y})`,
           );
@@ -813,9 +835,11 @@ export class EcbsrOnnxUpscaler implements UpscalerImpl {
     await this.gpuDevice!.queue.onSubmittedWorkDone();
 
     const inferEndedAt = performance.now();
-    console.info(
-      `[VSR][tiled-gpu] all tiles done in ${(inferEndedAt - inferStartedAt).toFixed(1)}ms`,
-    );
+    if (ECBSR_DEBUG) {
+      console.info(
+        `[VSR][tiled-gpu] all tiles done in ${(inferEndedAt - inferStartedAt).toFixed(1)}ms`,
+      );
+    }
 
     const postStartedAt = performance.now();
     this.uploadToPipeline(this.tiledFullOutputGpuBuffer!, outW, outH, true);
@@ -848,15 +872,19 @@ export class EcbsrOnnxUpscaler implements UpscalerImpl {
     outH: number,
   ): Promise<void> {
     const startedAt = performance.now();
-    console.info(
-      `[VSR][tiled-gpu] start tiles=${tiles.length} input=${width}x${height} output=${outW}x${outH} tileSize=${tiles[0]?.w} channels=${channels}`,
-    );
+    if (ECBSR_DEBUG) {
+      console.info(
+        `[VSR][tiled-gpu] start tiles=${tiles.length} input=${width}x${height} output=${outW}x${outH} tileSize=${tiles[0]?.w} channels=${channels}`,
+      );
+    }
 
     const preStartedAt = performance.now();
     this.pipeline!.packInput(video, this.inputGpuBuffer!, width, height);
     this.activeInputPath = "gpu";
     const preEndedAt = performance.now();
-    console.info(`[VSR][tiled-gpu] pack done in ${(preEndedAt - preStartedAt).toFixed(1)}ms`);
+    if (ECBSR_DEBUG) {
+      console.info(`[VSR][tiled-gpu] pack done in ${(preEndedAt - preStartedAt).toFixed(1)}ms`);
+    }
 
     const clearEncoder = this.gpuDevice!.createCommandEncoder();
     clearEncoder.clearBuffer(this.tiledFullOutputGpuBuffer!, 0);
@@ -911,7 +939,7 @@ export class EcbsrOnnxUpscaler implements UpscalerImpl {
       );
 
       const totalMs = performance.now() - tileT0;
-      if (t < 5 || t % 50 === 0) {
+      if (ECBSR_DEBUG && (t < 5 || t % 50 === 0)) {
         console.info(
           `[VSR][tiled-gpu] tile ${t}/${tiles.length} run=${runMs.toFixed(1)}ms total=${totalMs.toFixed(1)}ms pos=(${tile.x},${tile.y})`,
         );
@@ -921,9 +949,11 @@ export class EcbsrOnnxUpscaler implements UpscalerImpl {
     await this.gpuDevice!.queue.onSubmittedWorkDone();
 
     const inferEndedAt = performance.now();
-    console.info(
-      `[VSR][tiled-gpu] all tiles done in ${(inferEndedAt - inferStartedAt).toFixed(1)}ms`,
-    );
+    if (ECBSR_DEBUG) {
+      console.info(
+        `[VSR][tiled-gpu] all tiles done in ${(inferEndedAt - inferStartedAt).toFixed(1)}ms`,
+      );
+    }
 
     const postStartedAt = performance.now();
     this.uploadToPipeline(this.tiledFullOutputGpuBuffer!, outW, outH, true);
@@ -968,11 +998,23 @@ export class EcbsrOnnxUpscaler implements UpscalerImpl {
 
     const inferStartedAt = performance.now();
 
+    const maxTilePixels = (this.model.tileSize ?? 256) * (this.model.tileSize ?? 256);
+    const maxTileInputSize = maxTilePixels * channels;
+    const maxTileOutputSize = maxTilePixels * scale * scale * channels;
+    if (!this.cpuTileInputBuffer || this.cpuTileInputCapacity < maxTileInputSize) {
+      this.cpuTileInputBuffer = new Float32Array(maxTileInputSize);
+      this.cpuTileInputCapacity = maxTileInputSize;
+    }
+    if (!this.cpuTileOutputBuffer || this.cpuTileOutputCapacity < maxTileOutputSize) {
+      this.cpuTileOutputBuffer = new Float32Array(maxTileOutputSize);
+      this.cpuTileOutputCapacity = maxTileOutputSize;
+    }
+
     for (let t = 0; t < tiles.length; t++) {
       if (this.aborted) return;
       const tile = tiles[t];
       const tilePlaneSize = tile.w * tile.h;
-      const tileInput = new Float32Array(tilePlaneSize * channels);
+      const tileInput = this.cpuTileInputBuffer!;
 
       for (let c = 0; c < channels; c++) {
         for (let ty = 0; ty < tile.h; ty++) {
@@ -987,17 +1029,17 @@ export class EcbsrOnnxUpscaler implements UpscalerImpl {
 
       const tileTensor = new ortRuntime.Tensor(
         "float32",
-        tileInput,
+        tileInput.subarray(0, tilePlaneSize * channels),
         [1, channels, tile.h, tile.w],
       );
 
       const tileOutW = tile.w * scale;
       const tileOutH = tile.h * scale;
+      const tileOutPlaneSize = tileOutW * tileOutH;
 
-      const tileOutData = new Float32Array(tileOutW * tileOutH * channels);
       const tileOutTensor = new ortRuntime.Tensor(
         "float32",
-        tileOutData,
+        this.cpuTileOutputBuffer!.subarray(0, tileOutPlaneSize * channels),
         [1, channels, tileOutH, tileOutW],
       );
 
@@ -1006,7 +1048,7 @@ export class EcbsrOnnxUpscaler implements UpscalerImpl {
         { [this.outputName]: tileOutTensor },
       );
 
-      const tileOutPlaneSize = tileOutW * tileOutH;
+      const tileOutData = this.cpuTileOutputBuffer!;
       const dstX = tile.x * scale;
       const dstY = tile.y * scale;
 
@@ -1027,13 +1069,16 @@ export class EcbsrOnnxUpscaler implements UpscalerImpl {
     const postStartedAt = performance.now();
     if (this.gpuDevice && this.pipeline) {
       const alignedSize = Math.ceil(outputData.byteLength / 16) * 16;
-      const tempBuffer = this.gpuDevice.createBuffer({
-        size: alignedSize,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-      });
-      this.gpuDevice.queue.writeBuffer(tempBuffer, 0, outputData);
-      this.uploadToPipeline(tempBuffer, outW, outH, true);
-      tempBuffer.destroy();
+      if (!this.cpuOutputTempBuffer || this.cpuOutputTempBufferSize < alignedSize) {
+        this.cpuOutputTempBuffer?.destroy();
+        this.cpuOutputTempBuffer = this.gpuDevice.createBuffer({
+          size: alignedSize,
+          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        });
+        this.cpuOutputTempBufferSize = alignedSize;
+      }
+      this.gpuDevice.queue.writeBuffer(this.cpuOutputTempBuffer, 0, outputData);
+      this.uploadToPipeline(this.cpuOutputTempBuffer, outW, outH, true);
     }
     const finishedAt = performance.now();
     this.outputReady = true;
@@ -1089,6 +1134,7 @@ export class EcbsrOnnxUpscaler implements UpscalerImpl {
   private async handleOutput(
     results: Record<string, OnnxRuntimeWeb.Tensor>,
     useGpuOutput: boolean,
+    video?: HTMLVideoElement,
   ): Promise<void> {
     if (!this.pipeline) {
       throw new Error("Pipeline is unavailable for output handling");
@@ -1103,6 +1149,17 @@ export class EcbsrOnnxUpscaler implements UpscalerImpl {
           this.outputWidth,
           this.outputHeight,
         );
+      } else if (video) {
+        // Merged unpack + composite: single command submission
+        this.pipeline.unpackAndComposite(
+          this.outputGpuBuffer,
+          this.outputWidth,
+          this.outputHeight,
+          video,
+        );
+        this.lastCompositeIncludedVideo = video;
+        this.activeCompositePath = "webgpu";
+        return;
       } else {
         this.pipeline.unpackOutput(
           this.outputGpuBuffer,
@@ -1120,16 +1177,19 @@ export class EcbsrOnnxUpscaler implements UpscalerImpl {
     if (mode === "luma_inject") {
       this.pipeline.uploadLumaFromData(data, this.outputWidth, this.outputHeight);
     } else {
-      // For CPU output, write to a temp GPU buffer and unpack
+      // For CPU output, write to a reusable GPU buffer and unpack
       if (this.gpuDevice) {
         const alignedSize = Math.ceil(data.byteLength / 16) * 16;
-        const tempBuffer = this.gpuDevice.createBuffer({
-          size: alignedSize,
-          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-        });
-        this.gpuDevice.queue.writeBuffer(tempBuffer, 0, data);
-        this.pipeline.unpackOutput(tempBuffer, this.outputWidth, this.outputHeight);
-        tempBuffer.destroy();
+        if (!this.cpuOutputTempBuffer || this.cpuOutputTempBufferSize < alignedSize) {
+          this.cpuOutputTempBuffer?.destroy();
+          this.cpuOutputTempBuffer = this.gpuDevice.createBuffer({
+            size: alignedSize,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+          });
+          this.cpuOutputTempBufferSize = alignedSize;
+        }
+        this.gpuDevice.queue.writeBuffer(this.cpuOutputTempBuffer, 0, data);
+        this.pipeline.unpackOutput(this.cpuOutputTempBuffer, this.outputWidth, this.outputHeight);
       }
     }
     this.activeCompositePath = "webgpu";
@@ -1193,9 +1253,12 @@ export class EcbsrOnnxUpscaler implements UpscalerImpl {
     this.tileInputGpuBuffer?.destroy();
     this.tileOutputGpuBuffer?.destroy();
     this.tiledFullOutputGpuBuffer?.destroy();
+    this.cpuOutputTempBuffer?.destroy();
     this.tileInputGpuBuffer = null;
     this.tileOutputGpuBuffer = null;
     this.tiledFullOutputGpuBuffer = null;
+    this.cpuOutputTempBuffer = null;
+    this.cpuOutputTempBufferSize = 0;
     this.destroyBatchedTileResources();
     this.gpuDevice = null;
     this.gpuInputEnabled = false;

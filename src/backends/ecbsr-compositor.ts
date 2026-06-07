@@ -13,6 +13,10 @@ export class EcbsrCompositeRenderer {
   private lumaWidth = 0;
   private lumaHeight = 0;
   private floatLinear: OES_texture_float_linear | null;
+  private uVideoLoc: WebGLUniformLocation | null;
+  private uLumaLoc: WebGLUniformLocation | null;
+  private uMixLoc: WebGLUniformLocation | null;
+  private aPositionLoc: number;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -32,6 +36,10 @@ export class EcbsrCompositeRenderer {
 
     this.gl = gl;
     this.program = createProgram(gl, vertexShader, ecbsrCompositeShader);
+    this.uVideoLoc = gl.getUniformLocation(this.program, "u_video");
+    this.uLumaLoc = gl.getUniformLocation(this.program, "u_luma");
+    this.uMixLoc = gl.getUniformLocation(this.program, "u_mix");
+    this.aPositionLoc = gl.getAttribLocation(this.program, "a_position");
     this.baseTexture = gl.createTexture()!;
     this.lumaTexture = gl.createTexture()!;
     this.buffer = gl.createBuffer()!;
@@ -139,17 +147,16 @@ export class EcbsrCompositeRenderer {
 
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.baseTexture);
-    gl.uniform1i(gl.getUniformLocation(this.program, "u_video"), 0);
+    gl.uniform1i(this.uVideoLoc, 0);
 
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, this.lumaTexture);
-    gl.uniform1i(gl.getUniformLocation(this.program, "u_luma"), 1);
-    gl.uniform1f(gl.getUniformLocation(this.program, "u_mix"), 1);
+    gl.uniform1i(this.uLumaLoc, 1);
+    gl.uniform1f(this.uMixLoc, 1);
 
-    const position = gl.getAttribLocation(this.program, "a_position");
     gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
-    gl.enableVertexAttribArray(position);
-    gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(this.aPositionLoc);
+    gl.vertexAttribPointer(this.aPositionLoc, 2, gl.FLOAT, false, 0, 0);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
     return true;
   }

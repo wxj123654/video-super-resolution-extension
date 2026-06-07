@@ -40,6 +40,8 @@ export class Controller {
   private handleScroll: () => void;
   private handleResize: () => void;
   private handleMediaChange: () => void;
+  private cachedRect: DOMRect | null = null;
+  private rectDirty = true;
 
   constructor() {
     this.profile = detectSiteProfile();
@@ -57,8 +59,8 @@ export class Controller {
     this.canvas = this.createCanvas();
     this.appendCanvasTo(document.documentElement, null);
     this.applyCanvasVisuals();
-    this.handleScroll = () => this.syncCanvasBounds();
-    this.handleResize = () => this.syncCanvasBounds();
+    this.handleScroll = () => { this.rectDirty = true; this.syncCanvasBounds(); };
+    this.handleResize = () => { this.rectDirty = true; this.syncCanvasBounds(); };
     this.handleMediaChange = () => this.scheduleRescan();
     window.addEventListener("scroll", this.handleScroll, true);
     window.addEventListener("resize", this.handleResize);
@@ -66,7 +68,10 @@ export class Controller {
     document.addEventListener("loadedmetadata", this.handleMediaChange, true);
     document.addEventListener("loadeddata", this.handleMediaChange, true);
     document.addEventListener("playing", this.handleMediaChange, true);
-    this.resizeObserver = new ResizeObserver(() => this.syncCanvasBounds());
+    this.resizeObserver = new ResizeObserver(() => {
+      this.rectDirty = true;
+      this.syncCanvasBounds();
+    });
     this.mutationObserver = new MutationObserver(() => this.scheduleRescan());
     this.mutationObserver.observe(document.documentElement, {
       childList: true,
@@ -158,6 +163,7 @@ export class Controller {
     const videos = collectVideos(this.profile.videoSelectors);
     this.video =
       videos
+        .filter(({ video }) => video.offsetWidth >= 120 && video.offsetHeight >= 90)
         .map(({ video, priority }) => ({
           video,
           rect: video.getBoundingClientRect(),
@@ -165,6 +171,7 @@ export class Controller {
         }))
         .filter(({ rect }) => rect.width >= 120 && rect.height >= 90)
         .sort((a, b) => scoreVideo(b) - scoreVideo(a))[0]?.video ?? null;
+    this.rectDirty = true;
     logger.debug("Video selection completed", {
       candidateCount: videos.length,
       selectedVideo: this.summarizeVideo(this.video),
@@ -207,6 +214,7 @@ export class Controller {
       this.upscalerKey = pipelineKey;
     }
     this.resizeObserver.observe(this.video);
+    this.rectDirty = true;
     this.syncCanvasBounds();
     logger.debug("Upscaler ready", {
       engine,
@@ -308,7 +316,11 @@ export class Controller {
   private syncCanvasBounds(): void {
     if (!this.video) return;
     this.syncCanvasParent();
-    const rect = this.video.getBoundingClientRect();
+    if (this.rectDirty || !this.cachedRect) {
+      this.cachedRect = this.video.getBoundingClientRect();
+      this.rectDirty = false;
+    }
+    const rect = this.cachedRect;
     const visible =
       rect.width > 0 &&
       rect.height > 0 &&
@@ -381,6 +393,8 @@ export class Controller {
     if (previous !== this.video) {
       previous?.classList.remove("vgsr-hidden-source");
       this.resizeObserver.disconnect();
+      this.cachedRect = null;
+      this.rectDirty = true;
     }
   }
 
@@ -540,7 +554,6 @@ export class Controller {
       paused: video.paused,
       videoWidth: video.videoWidth,
       videoHeight: video.videoHeight,
-      rect: video.getBoundingClientRect().toJSON(),
     };
   }
 
